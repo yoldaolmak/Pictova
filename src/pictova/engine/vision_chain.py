@@ -1,12 +1,12 @@
-"""Pictova Vision Chain — görsel analiz öncelik zinciri.
+"""Pictova Vision Chain — image analysis priority chain.
 
-Öncelik (asla basic fallback yok):
-  1. Gemini Flash REST (GEMINI_API_KEY — Google AI Studio, ücretsiz)
+Priority (no basic fallback ever):
+  1. Gemini Flash REST (GEMINI_API_KEY — Google AI Studio, free)
   2. Codex CLI web login  (codex exec --ephemeral --yolo, ~/.codex/auth.json)
   3. Claude CLI web login (claude --print --allowedTools Read)
 
-Herhangi biri başarılı → döner.
-Hepsi başarısız → RuntimeError (basic fallback YOK).
+Any one succeeds → returns.
+All fail → RuntimeError (NO basic fallback).
 """
 
 from __future__ import annotations
@@ -14,9 +14,11 @@ from __future__ import annotations
 import base64
 import json
 import os
+import random
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import urllib.error
 import urllib.request
@@ -24,10 +26,10 @@ from pathlib import Path
 from typing import Any, Dict
 
 
-# ── Ortak yardımcılar ────────────────────────────────────────────────────────
+# ── Common helpers ────────────────────────────────────────────────────────
 
 def _image_b64(image_path: str, max_side: int = 0) -> tuple[str, str]:
-    """(base64_str, mime_type). max_side>0 ise PIL ile thumbnail alır."""
+    """(base64_str, mime_type). If max_side>0, creates a thumbnail via PIL."""
     import io
     p = Path(image_path)
     mime = "image/jpeg"
@@ -53,13 +55,13 @@ def _strip_ansi(text: str) -> str:
 
 
 def _parse_json_from_text(text: str) -> Dict:
-    """JSON bloğunu metinden çıkar."""
+    """Extract a JSON block from text."""
     text = text.strip()
-    # ```json ... ``` bloğu
+    # ```json ... ``` block
     m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.S)
     if m:
         return json.loads(m.group(1))
-    # İlk { ... }
+    # First { ... }
     m = re.search(r"\{.*\}", text, re.S)
     if m:
         return json.loads(m.group(0))
@@ -68,20 +70,22 @@ def _parse_json_from_text(text: str) -> Dict:
 
 def _vision_prompt(image_path: str, location_hint: str, post_context: Dict) -> str:
     title = str(post_context.get("title") or "").strip()
-    slug = str(post_context.get("slug") or "").strip()
+    location_ctx = location_hint or title or ""
+    apple_labels = post_context.get("apple_labels") or []
+    apple_labels_ctx = ", ".join(apple_labels) if apple_labels else ""
     return (
-        f"WordPress medya metadata üret. SADECE JSON döndür, başka metin yok.\n\n"
-        f"Bağlam: title={title or '?'} | slug={slug or '?'} | hint={location_hint or '?'}\n\n"
+        f"Görseli seyahat blogu bağlamında analiz et ve SADECE JSON döndür.\n"
+        f"Bağlam: Lokasyon={location_ctx or '?'}, Apple_Etiketleri={apple_labels_ctx or '?'}\n\n"
         f"Kurallar:\n"
-        f"- Gördüğünü yaz, uydurma\n"
-        f"- alt: Türkçe, SEO uyumlu, ekran okuyucu için sade tanım, 'Fotoğraf:' ile başlama, max 125 char\n"
-        f"- title: Türkçe, SEO uyumlu, lokasyon + sahne, max 60 char\n"
-        f"- caption: Türkçe, Kemal Kaya üslubu (BBC Travel tonu, kısa cümle, gözlem odaklı, 'Bu fotoğrafta' YASAK), max 180 char\n"
-        f"- description: Türkçe, SEO uyumlu lokasyon + sahne bağlamı, max 300 char\n"
-        f"- summary: Türkçe, tek cümle sahne özeti, max 150 char\n"
-        f"- keywords: 3-6 kelime (Türkçe veya evrensel terimler), array\n\n"
-        f"{{\"alt\":\"...\",\"title\":\"...\",\"caption\":\"...\","
-        f"\"description\":\"...\",\"summary\":\"...\",\"keywords\":[\"k1\",\"k2\"]}}"
+        f"- alt: Ekran okuyucu ve erişilebilirlik için sade görsel tanımı (Türkçe, maks 120 kr)\n"
+        f"- title: Arama motoru için lokasyon ve konuyu içeren SEO başlığı (Türkçe, maks 60 kr, örn: 'Gümüşlük Bodrum Dalgalı Deniz')\n"
+        f"- caption: İnsan okuyucu için fotoğrafa anlam, bağlam ve seyahat ruhu katan doğal, gerçekçi alt yazı (Türkçe, maks 150 kr, örn: 'Gümüşlük kıyılarında akşamüstü rüzgarıyla dalgalanan Ege suları.')\n"
+        f"- description: Görsel detaylarını lokasyon bağlamıyla birleştiren zengin açıklama (Türkçe, maks 250 kr)\n"
+        f"- summary: Tek cümle özet (Türkçe, maks 120 kr)\n"
+        f"- keywords: 3-5 adet anahtar kelime (Türkçe)\n"
+        f"- scene/activity: Kategori ve aktivite (İngilizce)\n"
+        f"- story_score: Seyahat değeri (0.0 - 1.0)\n\n"
+        f"{{\"alt\":\"...\",\"title\":\"...\",\"caption\":\"...\",\"description\":\"...\",\"summary\":\"...\",\"keywords\":[],\"people\":[],\"scene\":\"...\",\"activity\":\"...\",\"story_score\":0.8}}"
     )
 
 
@@ -92,13 +96,43 @@ def _analyze_gemini_flash(
     location_hint: str,
     post_context: Dict,
 ) -> Dict[str, Any]:
-    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    keys_env = os.environ.get("GEMINI_API_KEYS", "").strip()
+    
+    # Fallback to reading .env directly if not in environ
+    if not keys_env:
+        env_path = Path(__file__).parent.parent.parent.parent / ".env"
+        if env_path.exists():
+            for line in env_path.read_text().splitlines():
+                if line.startswith("GEMINI_API_KEYS="):
+                    keys_env = line.split("=", 1)[1].strip('"\' ')
+                    break
+                elif line.startswith("GEMINI_API_KEY="):
+                    if not keys_env:  # Only use single key if plural keys not found
+                        keys_env = line.split("=", 1)[1].strip('"\' ')
+
+    if keys_env:
+        # Strip quotes if present
+        keys_env = keys_env.strip('"\'')
+        keys_list = [k.strip() for k in keys_env.split(",")]
+        api_key = random.choice(keys_list)
+    else:
+        api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+        
     if not api_key:
-        raise RuntimeError("GEMINI_API_KEY yok")
+        raise RuntimeError("GEMINI_API_KEY or GEMINI_API_KEYS not set")
 
     b64, mime = _image_b64(image_path)
     prompt = _vision_prompt(image_path, location_hint, post_context)
-    model = os.environ.get("GEMINI_VISION_MODEL", "gemini-2.0-flash")
+    model = os.environ.get("GEMINI_VISION_MODEL", "").strip()
+    if not model:
+        env_path = Path(__file__).parent.parent.parent.parent / ".env"
+        if env_path.exists():
+            for line in env_path.read_text().splitlines():
+                if line.startswith("GEMINI_VISION_MODEL="):
+                    model = line.split("=", 1)[1].strip('"\' ')
+                    break
+    if not model:
+        model = "gemini-3.5-flash"
 
     body = json.dumps({
         "contents": [{
@@ -107,17 +141,52 @@ def _analyze_gemini_flash(
                 {"text": prompt},
             ]
         }],
-        "generationConfig": {"maxOutputTokens": 512, "temperature": 0.2},
+        "generationConfig": {"maxOutputTokens": 2048, "temperature": 0.2},
     }).encode()
 
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/"
         f"{model}:generateContent?key={api_key}"
     )
-    req = urllib.request.Request(url, data=body, method="POST",
-                                 headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        data = json.loads(resp.read())
+    import time
+    
+    # Prepare all available keys (try a different key on 429)
+    all_keys = []
+    keys_raw = os.environ.get("GEMINI_API_KEYS", "").strip()
+    if not keys_raw:
+        env_path = Path(__file__).parent.parent.parent.parent / ".env"
+        if env_path.exists():
+            for ln in env_path.read_text().splitlines():
+                if ln.startswith("GEMINI_API_KEYS="):
+                    keys_raw = ln.split("=", 1)[1].strip('"\' ')
+                    break
+    if keys_raw:
+        all_keys = [k.strip() for k in keys_raw.split(",") if k.strip()]
+    
+    for attempt in range(8):
+        # Pick a different key on each retry
+        if all_keys and attempt > 0:
+            api_key = random.choice(all_keys)
+            url = (
+                f"https://generativelanguage.googleapis.com/v1beta/models/"
+                f"{model}:generateContent?key={api_key}"
+            )
+        try:
+            req = urllib.request.Request(url, data=body, method="POST",
+                                         headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = json.loads(resp.read())
+            # Mandatory wait after successful request to avoid IP throttling
+            time.sleep(4)
+            break
+        except urllib.error.HTTPError as e:
+            if e.code in (429, 503):
+                if attempt < 7:
+                    wait = min(30 * (2 ** attempt), 300)  # 30s, 60s, 120s, 240s, 300s...
+                    print(f"  [!] Gemini {e.code} (key ...{api_key[-5:]}), waiting {wait}s, will try a different key...", file=sys.stderr)
+                    time.sleep(wait)
+                    continue
+            raise
 
     text = data["candidates"][0]["content"]["parts"][0]["text"]
     return _parse_json_from_text(text)
@@ -138,7 +207,7 @@ def _codex_check_login() -> bool:
 
 
 def _find_bin(name: str) -> str | None:
-    """shutil.which + bilinen npm prefix konumları."""
+    """shutil.which + known npm prefix locations."""
     found = shutil.which(name)
     if found:
         return found
@@ -159,11 +228,11 @@ def _analyze_codex(
     post_context: Dict,
 ) -> Dict[str, Any]:
     if not _codex_check_login():
-        raise RuntimeError("Codex oturumu yok — terminalde: codex login")
+        raise RuntimeError("No Codex session — run: codex login")
 
     codex_bin = _find_bin("codex")
     if not codex_bin:
-        raise RuntimeError("codex CLI bulunamadı")
+        raise RuntimeError("codex CLI not found")
 
     prompt_text = _vision_prompt(image_path, location_hint, post_context)
     full_prompt = (
@@ -192,19 +261,19 @@ def _analyze_codex(
             pass
 
     if not answer:
-        raise RuntimeError("Codex boş yanıt döndü")
+        raise RuntimeError("Codex returned an empty response")
     return _parse_json_from_text(answer)
 
 
 # ── 3. Claude CLI web login ──────────────────────────────────────────────────
 
 def _prepare_image_for_cli(image_path: str, max_side: int = 512) -> str:
-    """HEIC veya büyük dosyaları küçük JPEG thumbnail'e çevir. Path döner."""
+    """Convert HEIC or large files to a small JPEG thumbnail. Returns the path."""
     p = Path(image_path)
     ext = p.suffix.lower()
     tmp = Path(tempfile.gettempdir()) / f"pictova_thumb_{p.stem}.jpg"
 
-    # 1. PIL ile dönüşüm (en kaliteli)
+    # 1. Conversion via PIL (best quality)
     try:
         from PIL import Image as _PIL, ImageOps as _IO
         img = _IO.exif_transpose(_PIL.open(str(p))).convert("RGB")
@@ -215,7 +284,7 @@ def _prepare_image_for_cli(image_path: str, max_side: int = 512) -> str:
     except Exception:
         pass
 
-    # 2. sips fallback — HEIC dahil tüm formatlar için
+    # 2. sips fallback — for all formats including HEIC
     sips_bin = shutil.which("sips")
     if sips_bin:
         r = subprocess.run(
@@ -225,7 +294,7 @@ def _prepare_image_for_cli(image_path: str, max_side: int = 512) -> str:
         if r.returncode == 0 and tmp.exists() and tmp.stat().st_size > 0:
             return str(tmp)
 
-    # 3. ImageMagick convert (opsiyonel)
+    # 3. ImageMagick convert (optional)
     convert_bin = shutil.which("convert")
     if convert_bin:
         r = subprocess.run(
@@ -235,7 +304,7 @@ def _prepare_image_for_cli(image_path: str, max_side: int = 512) -> str:
         if r.returncode == 0 and tmp.exists() and tmp.stat().st_size > 0:
             return str(tmp)
 
-    # Dönüştürülemedi — orijinali döndür
+    # Could not convert — return the original
     return image_path
 
 
@@ -246,9 +315,9 @@ def _analyze_claude_cli(
 ) -> Dict[str, Any]:
     claude_bin = _find_bin("claude")
     if not claude_bin:
-        raise RuntimeError("claude CLI bulunamadı")
+        raise RuntimeError("claude CLI not found")
 
-    # HEIC ve büyük dosyaları küçük JPEG'e çevir (Claude Read tool 256KB limiti)
+    # Convert HEIC and large files to small JPEG (Claude Read tool 256KB limit)
     ready_path = _prepare_image_for_cli(image_path)
 
     prompt = (
@@ -265,12 +334,128 @@ def _analyze_claude_cli(
     output = _strip_ansi((result.stdout or "").strip())
     stderr = _strip_ansi((result.stderr or "").strip())
     if result.returncode != 0 or not output:
-        detail = stderr[-300:] if stderr else "(stderr boş)"
+        detail = stderr[-300:] if stderr else "(stderr empty)"
         raise RuntimeError(f"Claude CLI rc={result.returncode}: {detail}")
     return _parse_json_from_text(output)
 
 
-# ── Ana zincir ────────────────────────────────────────────────────────────────
+def _pick_lm_studio_vision_model(models: list) -> str:
+    """Pick the highest-priority vision-capable model from the LM Studio model list.
+
+    Scans by priority so that a higher-priority match anywhere in the list wins
+    over a lower-priority match earlier in the list.
+    """
+    checks = [
+        lambda mid: "vl" in mid and "qwen" in mid,
+        lambda mid: "vl" in mid,
+        lambda mid: "vision" in mid,
+        lambda mid: "instruct" in mid and "coder" not in mid,
+    ]
+    for check in checks:
+        for model in models:
+            if check(model["id"].lower()):
+                return model["id"]
+    raise RuntimeError(
+        "LM Studio'da gorsel analiz destekleyen model bulunamadi. "
+        "qwen2.5-vl-7b-instruct modelini yukleyin."
+    )
+
+
+def _lm_studio_has_vision_model() -> bool:
+    """Return True only if LM Studio is running AND has a vision-capable model loaded."""
+    try:
+        with urllib.request.urlopen("http://localhost:1234/v1/models", timeout=2) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            for model in data.get("data", []):
+                mid = model["id"].lower()
+                if "vl" in mid or "vision" in mid:
+                    return True
+    except Exception:
+        pass
+    return False
+
+
+def _analyze_lm_studio(
+    image_path: str,
+    location_hint: str,
+    post_context: Dict,
+) -> Dict[str, Any]:
+    url_models = "http://localhost:1234/v1/models"
+    url_chat = "http://localhost:1234/v1/chat/completions"
+
+    try:
+        req_models = urllib.request.Request(url_models)
+        with urllib.request.urlopen(req_models, timeout=2) as resp:
+            models_data = json.loads(resp.read().decode("utf-8"))
+            models = models_data.get("data", [])
+            if not models:
+                raise RuntimeError("LM Studio'da yuklu model bulunamadi")
+            model_id = _pick_lm_studio_vision_model(models)
+    except RuntimeError:
+        raise
+    except Exception as e:
+        raise RuntimeError(f"LM Studio cevap vermiyor: {e}")
+
+    # Prepare image
+    b64_mime, b64_data = _image_b64(image_path, max_side=1024)
+    prompt = _vision_prompt(image_path, location_hint, post_context)
+
+    system_msg = (
+        "Sen bir seyahat fotoğrafı analiz asistanısın. Görselleri nesnel, sade ve doğal bir dille analiz edersin. "
+        "Hiçbir açıklama eklemeden, sadece düz JSON formatında yanıt verirsin."
+    )
+
+    payload = {
+        "model": model_id,
+        "messages": [
+            {
+                "role": "system",
+                "content": system_msg
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:{b64_mime};base64,{b64_data}"
+                        }
+                    }
+                ]
+            }
+        ],
+        "temperature": 0.3,
+        "max_tokens": 800
+    }
+
+    req = urllib.request.Request(
+        url_chat,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"}
+    )
+    
+    try:
+        with urllib.request.urlopen(req, timeout=180) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode('utf-8')
+        # If model doesn't support images, skip gracefully
+        if "does not support image" in err_body or e.code == 400:
+            raise RuntimeError(f"LM Studio model does not support images: {err_body[:200]}")
+        raise RuntimeError(f"LM Studio API Error: {e.code} - {err_body[:200]}")
+    except Exception as e:
+        raise RuntimeError(f"LM Studio API Connection Error: {e}")
+        
+    choice = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+    output = _strip_ansi(choice.strip())
+    if not output:
+        raise RuntimeError("LM Studio returned an empty response")
+        
+    return _parse_json_from_text(output)
+
+
+# ── Main chain ────────────────────────────────────────────────────────────────
 
 def analyze_image_vision_chain(
     image_path: str,
@@ -278,15 +463,23 @@ def analyze_image_vision_chain(
     location_hint: str = "",
     post_context: Dict | None = None,
 ) -> Dict[str, Any]:
-    """Öncelik zinciri ile görsel analizi. Basic fallback YOK.
+    """Image analysis via priority chain. NO basic fallback.
 
-    Döner: {"alt":..., "title":..., "caption":..., "description":..., "keywords":[...], "source":"..."}
-    Hepsi başarısız → RuntimeError.
+    Returns: {"alt":..., "title":..., "caption":..., "description":..., "keywords":[...], "source":"..."}
+    All fail → RuntimeError.
     """
     post_context = post_context or {}
     errors: list[str] = []
 
-    # 1. Gemini Flash
+    # 1. LM Studio (Local, if running, try first to save API tokens)
+    try:
+        result = _analyze_lm_studio(image_path, location_hint, post_context)
+        result["source"] = "lm_studio"
+        return result
+    except Exception as exc:
+        errors.append(f"lm_studio: {exc}")
+
+    # 2. Gemini Flash
     try:
         result = _analyze_gemini_flash(image_path, location_hint, post_context)
         result["source"] = "gemini_flash"
@@ -317,7 +510,10 @@ def analyze_image_vision_chain(
 
 
 def has_any_vision_source() -> bool:
-    """En az bir kaynak kullanılabilir mi?"""
+    """Is at least one vision source available?"""
+    if _lm_studio_has_vision_model():
+        return True
+        
     if os.environ.get("GEMINI_API_KEY", "").strip():
         return True
     if _codex_check_login() and _find_bin("codex"):
@@ -328,10 +524,10 @@ def has_any_vision_source() -> bool:
 
 
 def download_icloud_photo(uuid: str, dest_dir: str | None = None) -> str:
-    """iCloud fotoğrafı UUID ile indir, lokal path döner.
+    """Download an iCloud photo by UUID, returns the local path.
 
-    python3.11 ve osxphotos gerektirir.
-    dest_dir yoksa /tmp/pictova_icloud/ kullanılır.
+    Requires python3.11 and osxphotos.
+    If dest_dir is not provided, /tmp/pictova_icloud/ is used.
     """
     import subprocess as _sp
     import tempfile as _tmp
@@ -353,7 +549,7 @@ def download_icloud_photo(uuid: str, dest_dir: str | None = None) -> str:
     path = result.stdout.strip()
     if result.returncode != 0 or not path:
         raise RuntimeError(
-            f"iCloud indirme başarısız (uuid={uuid}): {result.stderr[-300:]}"
+            f"iCloud download failed (uuid={uuid}): {result.stderr[-300:]}"
         )
     return path
 
