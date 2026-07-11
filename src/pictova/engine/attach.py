@@ -20,7 +20,7 @@ from src.pictova.engine.vision_chain import download_icloud_photo
 
 
 def _photo_index_stats() -> dict:
-    """Visual memory DB özet istatistikleri."""
+    """Visual memory DB summary statistics."""
     import sqlite3 as _sq
     try:
         from src.pictova.config import get_visual_memory_db_path
@@ -41,7 +41,7 @@ def _photo_index_stats() -> dict:
 
 
 def resolve_icloud_files(files: list[str], warnings: list[str]) -> list[str]:
-    """iCloud UUID (icloud://UUID) dosyalarını indirip lokal path ile değiştirir."""
+    """Downloads iCloud UUID (icloud://UUID) files and replaces them with local paths."""
     resolved = []
     for f in files:
         if f.startswith("icloud://"):
@@ -50,18 +50,46 @@ def resolve_icloud_files(files: list[str], warnings: list[str]) -> list[str]:
                 local = download_icloud_photo(uuid)
                 resolved.append(local)
             except Exception as exc:
-                warnings.append(f"iCloud indir başarısız ({uuid[:8]}): {exc}")
+                warnings.append(f"iCloud download failed ({uuid[:8]}): {exc}")
         else:
             resolved.append(f)
     return resolved
 
 
 def summarize_post_context(post_context: Dict[str, Any]) -> Dict[str, Any]:
+    if not post_context:
+        return {}
     return {
         "id": post_context.get("id"),
-        "title": post_context.get("title", ""),
-        "slug": post_context.get("slug", ""),
+        "title": post_context.get("title"),
+        "slug": post_context.get("slug"),
+        "excerpt_preview": str(post_context.get("excerpt", ""))[:100] + "...",
+        "headings_count": len(post_context.get("available_headings", [])),
     }
+
+
+def _compute_assigned_headings(processed_images: list[str], request: Dict[str, Any], post_context: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    assigned = {}
+    force_heading = request.get("heading")
+    if force_heading:
+        for img in processed_images:
+            assigned[img] = {"text": force_heading, "level": request.get("heading_level") or 0}
+        return assigned
+
+    available = post_context.get("available_headings") or []
+    if available:
+        n_images = len(processed_images)
+        n_heads = len(available)
+        if n_images > n_heads:
+            # More images than headings — round-robin across headings
+            for slot, img in enumerate(processed_images):
+                assigned[img] = available[slot % n_heads]
+        else:
+            step = n_heads / (n_images + 1)
+            for slot, img in enumerate(processed_images):
+                idx = min(int(step * (slot + 1)), n_heads - 1)
+                assigned[img] = available[idx]
+    return assigned
 
 
 _SLUG_GENERIC = {
@@ -73,10 +101,10 @@ _SLUG_GENERIC = {
 
 
 def derive_location_query(post_context: Dict[str, Any]) -> str:
-    """Slug'dan ilk 1-2 anlamlı destinasyon tokenini çıkar.
+    """Extract the first 1-2 meaningful destination tokens from the slug.
 
-    Tam başlık AND-logic semantic aramayı kırar (8+ token → hiçbir şey eşleşmez).
-    Sadece destinasyon adı yeterli: 'sinop-gezilecek-yerler' → 'sinop'.
+    Full title breaks AND-logic semantic search (8+ tokens → nothing matches).
+    Just the destination name is enough: 'sinop-gezilecek-yerler' → 'sinop'.
     """
     slug = str(post_context.get("slug") or "").strip()
     tokens = [
@@ -86,7 +114,15 @@ def derive_location_query(post_context: Dict[str, Any]) -> str:
     if tokens:
         return " ".join(tokens[:2])
     title = str(post_context.get("title") or "").strip()
-    return re.sub(r"\s+", " ", title).strip()
+    title = re.split(r"\s+[—–|]\s+", title, maxsplit=1)[0]
+    title_tokens = []
+    for token in re.findall(r"[a-zA-Z0-9çğıöşüÇĞİÖŞÜ]+", title):
+        normalized = token.lower()
+        if normalized in _SLUG_GENERIC or len(normalized) < 3 or normalized.isdigit():
+            continue
+        if normalized not in title_tokens:
+            title_tokens.append(normalized)
+    return " ".join(title_tokens[:2])
 
 
 def build_failed_attach_result(
@@ -205,7 +241,7 @@ def validate_attach_request(
             constraints=constraints,
             warning="query is required when source=unsplash",
         )
-    # post_id plan aşamasında opsiyonel — execute_native_attach'ta zorunlu
+    # post_id is optional during the plan phase — required in execute_native_attach
     return None
 
 
@@ -216,7 +252,7 @@ def _validate_execute_request(
     post_context: Dict[str, Any],
     constraints: Dict[str, Any],
 ) -> Dict[str, Any] | None:
-    """execute_native_attach için ek validasyon — post_id zorunlu."""
+    """Additional validation for execute_native_attach — post_id is required."""
     failure = validate_attach_request(
         site=site, request=request, post_context=post_context, constraints=constraints
     )
@@ -279,6 +315,7 @@ def build_attach_plan(
         location_query=request.get("location_query"),
         content_filter=request.get("content_filter"),
         post_context=post_context,
+        plan_only=True,
     )
     return {
         "command": "plan",
@@ -358,12 +395,20 @@ def finalize_publish_assets(
         process_info = dict(processed_details.get(file, {}))
         slug_source_path = str(process_info.get("input") or file)
         slug_candidates = build_publish_slug_candidates(meta, post_context, slug_source_path)
-        candidate_slug = ensure_unique_slug(slug_candidates[0], used_slugs)
+        # Find the best (first / location-based) candidate.
+        # Use directly if not already taken; try other candidates if it clashes;
+        # if all clash, use a suffixed version of the best candidate —
+        # this avoids falling back to a generic name (e.g. 'gumusluk-bodrum-koy-kayalik-detay').
+        best_candidate = slug_candidates[0] if slug_candidates else "seyahat-kare"
+        candidate_slug = None
         for slug in slug_candidates:
             trial = ensure_unique_slug(slug, used_slugs)
             if trial == slug:
                 candidate_slug = trial
                 break
+        if candidate_slug is None:
+            # All candidates already used — generate a suffixed version of the best candidate
+            candidate_slug = ensure_unique_slug(best_candidate, used_slugs)
         used_slugs.add(candidate_slug)
 
         final_path = ensure_publish_path(target_dir, candidate_slug)
@@ -413,12 +458,15 @@ def execute_native_attach(
     _resolved_files = resolve_icloud_files(selection.get("files", []), _icloud_warnings)
     processed = process_selected_images(_resolved_files)
     processed_images = processed.get("processed_images", [])
+    assigned_headings = _compute_assigned_headings(processed_images, request, post_context)
+
     metadata_dict, metadata_warnings = build_native_metadata_map(
         processed_images,
-        location_hint=request.get("location_query") or post_context.get("title", ""),
+        assigned_headings=assigned_headings,
         post_context=post_context,
         mode=request.get("metadata_mode", "auto"),
     )
+
     approved_files, approved_metadata, approved_details, blocked = quality_gate_native_batch(
         processed_images=processed_images,
         metadata_dict=metadata_dict,
