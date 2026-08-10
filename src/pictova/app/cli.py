@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
+import sys
 from typing import Any, Dict
 
 from src.pictova.app.health import run_health_check
@@ -13,8 +15,25 @@ from src.pictova.app.server import serve
 from src.pictova.providers.wordpress import fetch_post_context, guard_post_media, reset_post_media, resolve_post_site
 
 
-def _print_json(payload: Dict[str, Any]) -> None:
-    print(json.dumps(payload, ensure_ascii=False, indent=2))
+@contextlib.contextmanager
+def _stdout_reserved_for_json():
+    """Keep stdout clean so the printed result stays parseable JSON.
+
+    Image processing and the legacy orchestrator report progress with plain
+    print(), which lands on stdout and interleaves with the result document —
+    `pictova attach ... | jq` failed on its own output. Progress belongs on
+    stderr; stdout carries the machine-readable contract alone.
+    """
+    real_stdout = sys.stdout
+    sys.stdout = sys.stderr
+    try:
+        yield real_stdout
+    finally:
+        sys.stdout = real_stdout
+
+
+def _print_json(payload: Dict[str, Any], stream: Any = None) -> None:
+    print(json.dumps(payload, ensure_ascii=False, indent=2), file=stream or sys.stdout)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -121,13 +140,18 @@ def _attach_args_to_payload(args: argparse.Namespace) -> Dict[str, Any]:
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
+    with _stdout_reserved_for_json() as out:
+        return _dispatch(args, parser, out)
+
+
+def _dispatch(args, parser, out) -> int:
 
     if args.command == "attach":
         try:
             result = run_attach_job(**_attach_args_to_payload(args))
         except Exception as exc:
             result = {"command": "attach", "status": "failed", "warnings": [str(exc)]}
-        _print_json(result)
+        _print_json(result, out)
         return 0 if result.get("status") in {"success", "local"} else 1
 
     if args.command == "review":
@@ -149,14 +173,14 @@ def main() -> int:
                 "post_context": {},
                 "warnings": [str(exc)],
             }
-        _print_json(result)
+        _print_json(result, out)
         return 0 if result["status"] == "success" else 1
 
     if args.command == "guard":
         try:
             site, _ = resolve_post_site(args.post, site=args.site)
         except Exception as exc:
-            _print_json({"command": "guard", "status": "failed", "warnings": [str(exc)]})
+            _print_json({"command": "guard", "status": "failed", "warnings": [str(exc)]}, out)
             return 1
         if args.reset:
             reset = reset_post_media(args.post, site=site)
@@ -177,22 +201,22 @@ def main() -> int:
                 adopt=args.adopt,
                 media_ids=args.media_ids,
             )
-        _print_json(result)
+        _print_json(result, out)
         return 0 if result.get("status") == "success" else 1
 
     if args.command == "plan":
         result = plan_attach(_attach_args_to_payload(args))
-        _print_json(result)
+        _print_json(result, out)
         return 0 if result.get("status") == "success" else 1
 
     if args.command == "process":
         result = process_attach(_attach_args_to_payload(args))
-        _print_json(result)
+        _print_json(result, out)
         return 0 if result.get("status") == "success" else 1
 
     if args.command == "health":
         result = run_health_check()
-        _print_json(result)
+        _print_json(result, out)
         return 0 if result.get("status") == "ok" else 1
 
     if args.command == "serve":

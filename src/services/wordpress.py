@@ -29,6 +29,32 @@ AUTO_MEDIA_START = "<!-- yo:auto-media:start -->"
 AUTO_MEDIA_END = "<!-- yo:auto-media:end -->"
 
 
+def _request_error_detail(exc: requests.exceptions.RequestException) -> str:
+    """Include WordPress's own error body, not just the HTTP status line.
+
+    A 500 from the media endpoint reports `str(exc)` as "500 Server Error for
+    url ...", which says nothing. The body carries the actual cause — for
+    example `rest_upload_sideload_error: the uploaded file could not be moved
+    to wp-content/uploads/...`, a server permission problem no amount of
+    retrying will fix.
+    """
+    detail = str(exc)
+    response = getattr(exc, "response", None)
+    if response is None:
+        return detail
+    try:
+        payload = response.json()
+    except ValueError:
+        body = (response.text or "").strip()
+        return f"{detail} | {body[:300]}" if body else detail
+    if isinstance(payload, dict):
+        code = payload.get("code")
+        message = payload.get("message")
+        if code or message:
+            return f"{detail} | {code}: {message}"
+    return f"{detail} | {str(payload)[:300]}"
+
+
 def _first_env(*names: str) -> str:
     """Accept the documented and legacy app-password names for each site."""
     for name in names:
@@ -264,7 +290,7 @@ class YOWordPressUploader:
         except requests.exceptions.RequestException as e:
             return {
                 "success": False,
-                "error": str(e),
+                "error": _request_error_detail(e),
                 "file": file_p.name,
             }
 
@@ -301,7 +327,7 @@ class YOWordPressUploader:
         except requests.exceptions.RequestException as e:
             return {
                 "success": False,
-                "error": str(e),
+                "error": _request_error_detail(e),
                 "media_id": media_id,
             }
 
@@ -330,7 +356,7 @@ class YOWordPressUploader:
             resp.raise_for_status()
             return {"success": True, "media_id": media_id}
         except requests.exceptions.RequestException as exc:
-            return {"success": False, "media_id": media_id, "error": str(exc)}
+            return {"success": False, "media_id": media_id, "error": _request_error_detail(exc)}
 
     def refresh_managed_media_captions(self, post_id: int, media_items: List[Dict]) -> Dict:
         """Safely replace Pictova figure captions without moving media blocks.
@@ -455,7 +481,7 @@ class YOWordPressUploader:
             resp.raise_for_status()
             return {"success": True, "media_id": int(media_id)}
         except requests.exceptions.RequestException as exc:
-            return {"success": False, "media_id": int(media_id), "error": str(exc)}
+            return {"success": False, "media_id": int(media_id), "error": _request_error_detail(exc)}
 
     def remove_managed_media_items(
         self,
@@ -818,7 +844,7 @@ class YOWordPressUploader:
             )
             resp.raise_for_status()
         except requests.exceptions.RequestException as exc:
-            return {"success": False, "error": str(exc)}
+            return {"success": False, "error": _request_error_detail(exc)}
 
         verified = self.fetch_post_context(post_id)
         if not verified:
