@@ -12,6 +12,7 @@ from src.main import YOOrchestrator
 from src.core.media_publish import build_publish_slug_candidates, embed_metadata, ensure_unique_slug
 from src.pictova.profiles.yoldaolmak import apply_environment
 from src.pictova.engine.metadata import build_native_metadata_map
+from src.pictova.engine.placement import should_render_as_gallery
 from src.pictova.engine.quality import quality_gate_native_batch
 from src.pictova.providers.wordpress import fetch_post_context, resolve_post_site
 from src.pictova.engine.processor import process_selected_images
@@ -156,14 +157,6 @@ def _compute_assigned_headings(
     return assigned
 
 
-def _is_comprehensive_places_article(post_context: Dict[str, Any]) -> bool:
-    """Whether a two-image H3 gallery helps scan a long places list."""
-    title = str(post_context.get("title") or "").casefold()
-    headings = post_context.get("available_headings") or []
-    h3_count = sum(int(item.get("level") or 0) == 3 for item in headings)
-    return ("gezilecek yer" in title or "görülecek yer" in title) and h3_count >= 3
-
-
 def apply_semantic_gallery_policy(
     metadata_dict: Dict[str, Dict[str, Any]],
     processed_details: Dict[str, Dict[str, Any]],
@@ -171,13 +164,18 @@ def apply_semantic_gallery_policy(
     *,
     requested_count: int,
 ) -> Dict[str, Dict[str, Any]]:
-    """Mark only visually and structurally justified image pairs as galleries.
+    """Group the images under one heading the way published posts group them.
 
-    A gallery is presentation, not a shorthand for a requested count.  It is
-    useful for a pair of portrait images in a larger run, or for a pair placed
-    under one H3 in a long "gezilecek yerler" list.  Everything else remains a
-    sequence of individual responsive image blocks.
+    Measured across 300 published posts: a lone image is a plain block (66% of
+    all media blocks), a pair under one heading is a gallery (28%), and three
+    is a rare but real gallery (2%). Nothing larger occurs.
+
+    The previous rule additionally required a portrait pair and a requested
+    count above four, so the common two-image gallery almost never rendered as
+    one — it published as two stacked singles instead.
     """
+    del processed_details, post_context, requested_count  # no longer part of the decision
+
     grouped: Dict[tuple[str, int], list[str]] = {}
     for image_file, metadata in metadata_dict.items():
         metadata["gallery"] = False
@@ -186,17 +184,8 @@ def apply_semantic_gallery_policy(
         if heading:
             grouped.setdefault((heading, level), []).append(image_file)
 
-    places_article = _is_comprehensive_places_article(post_context)
-    for (_, heading_level), files in grouped.items():
-        if len(files) != 2:
-            continue
-        portrait_pair = all(
-            float((processed_details.get(image_file) or {}).get("aspect_ratio") or 1.0) < 0.92
-            for image_file in files
-        )
-        long_run_portrait_pair = requested_count > 4 and portrait_pair
-        places_subheading_pair = requested_count >= 6 and places_article and heading_level == 3
-        if long_run_portrait_pair or places_subheading_pair:
+    for files in grouped.values():
+        if should_render_as_gallery(len(files)):
             for image_file in files:
                 metadata_dict[image_file]["gallery"] = True
     return metadata_dict

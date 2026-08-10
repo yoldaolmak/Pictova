@@ -41,12 +41,12 @@ def test_primary_post_query_keeps_thematic_pair_not_title_filler():
 
 
 def test_numbered_h3_entity_excludes_editorial_suffix():
-    from src.pictova.engine.selector import _numbered_h3_entity_text, _numbered_h3_entity_tokens
+    from src.pictova.engine.selector import _numbered_entity_text, _numbered_entity_tokens
 
     heading = {"text": "1. Ohrid Gölü - Balkanların en eski ve derin gölü", "level": 3}
 
-    assert _numbered_h3_entity_text(heading) == "Ohrid Gölü"
-    assert _numbered_h3_entity_tokens(heading) == {"ohrid"}
+    assert _numbered_entity_text(heading) == "Ohrid Gölü"
+    assert _numbered_entity_tokens(heading) == {"ohrid"}
 
 
 def test_heading_search_query_excludes_plain_hyphen_editorial_suffix():
@@ -57,15 +57,15 @@ def test_heading_search_query_excludes_plain_hyphen_editorial_suffix():
 
 
 def test_heading_provider_tokens_translate_generic_entity_words():
-    from src.pictova.engine.selector import _numbered_h3_provider_tokens
+    from src.pictova.engine.selector import _numbered_provider_tokens
 
     theatre = {"text": "3. Antik Tiyatro - Tarihin sahnesi", "level": 3}
 
     # Common nouns still translate; the proper noun stays as written.
-    assert _numbered_h3_provider_tokens(theatre) == {"ancient", "theater"}
+    assert _numbered_provider_tokens(theatre) == {"ancient", "theater"}
     # "kalesi" is a non-specific geographic word and is dropped; the proper
     # noun is what actually anchors the asset.
-    assert _numbered_h3_provider_tokens(
+    assert _numbered_provider_tokens(
         {"text": "4. Samuil Kalesi - Şehrin koruyucusu", "level": 3}
     ) == {"samuil"}
 
@@ -196,7 +196,6 @@ def test_auto_selection_returns_exact_heading_assignments(monkeypatch):
     assert result["heading_assignments"]["/airbnb.jpg"]["text"] == "1. Airbnb"
 
 
-@pytest.mark.xfail(reason="Adım 2 (semantik katman) bekliyor: destinasyon/çapraz-dil sözlükleri kaldırıldı, yerine öğrenilmiş eşleşme gelecek", strict=True)
 def test_heading_selection_skips_sections_that_already_have_an_image(monkeypatch):
     from src.pictova.engine import selector
 
@@ -1207,18 +1206,26 @@ def test_semantic_gallery_policy_uses_h3_pairs_for_long_places_lists():
     assert result["c"]["gallery"] is False
 
 
-def test_semantic_gallery_policy_never_groups_a_three_image_request():
+def test_gallery_policy_follows_published_grouping():
+    """A pair under one heading is a gallery; a lone image is not.
+
+    Measured on 300 published posts: single block 66%, two-image gallery 28%.
+    The requested count and the aspect ratio play no part in that record.
+    """
     from src.pictova.engine.attach import apply_semantic_gallery_policy
 
     result = apply_semantic_gallery_policy(
         {
             "a": {"heading": "Koy", "heading_level": 3},
             "b": {"heading": "Koy", "heading_level": 3},
+            "c": {"heading": "Kale", "heading_level": 3},
         },
-        {"a": {"aspect_ratio": 0.7}, "b": {"aspect_ratio": 0.7}},
+        # Landscape pair — the old rule required portraits and refused to group.
+        {"a": {"aspect_ratio": 1.6}, "b": {"aspect_ratio": 1.6}, "c": {"aspect_ratio": 1.6}},
         {"title": "Datça Gezi Rehberi"},
         requested_count=3,
     )
 
-    assert result["a"]["gallery"] is False
-    assert result["b"]["gallery"] is False
+    assert result["a"]["gallery"] is True
+    assert result["b"]["gallery"] is True
+    assert result["c"]["gallery"] is False

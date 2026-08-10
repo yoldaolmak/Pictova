@@ -679,7 +679,10 @@ class YOWordPressUploader:
             if not valid_items:
                 continue
 
-            use_gallery = len(valid_items) == 2 and all(bool(item.get("gallery")) for item in valid_items)
+            # The placement policy decides what becomes a gallery; the renderer
+            # only honours it. Hardcoding "exactly two" here silently dropped
+            # the rare three-image gallery back into stacked single blocks.
+            use_gallery = len(valid_items) >= 2 and all(bool(item.get("gallery")) for item in valid_items)
             if not use_gallery:
                 # A count is not a gallery request.  Keep images as individual
                 # Gutenberg blocks unless the caller explicitly asks for a

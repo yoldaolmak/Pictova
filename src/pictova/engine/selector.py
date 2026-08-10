@@ -17,6 +17,7 @@ from src.core.processor import get_vil_images
 from src.core.media_quality import BAD_METADATA_TOKENS, GENERIC_ANCHORS, normalize_text
 from src.main import load_vil_images_from_index_for_post, search_semantic_assets
 from src.pictova.config import get_visual_memory_db_path
+from src.pictova.engine.placement import is_placement_target, rank_headings
 
 
 # The exact free discovery result is reusable by the paid phase. Keep it in
@@ -696,10 +697,14 @@ def _candidate_matches_heading(
     return _matches_anchor_tokens(candidate_tokens, anchor_tokens)
 
 
-def _numbered_h3_entity_text(heading: Dict[str, Any]) -> str:
-    """Return the named entity, excluding an editorial suffix after a dash."""
-    if int(heading.get("level") or 0) < 3:
-        return ""
+def _numbered_entity_text(heading: Dict[str, Any]) -> str:
+    """Return the named entity of a numbered list heading.
+
+    The level is deliberately not checked. Plenty of published guides number
+    their list items as H2 rather than H3, and requiring H3 left those posts
+    with no entity contract at all — every heading then fell back to a loose
+    prose query.
+    """
     text = str(heading.get("text") or "")
     if not re.match(r"^\s*\d{1,3}\s*[.\-):]", text):
         return ""
@@ -710,9 +715,9 @@ def _numbered_h3_entity_text(heading: Dict[str, Any]) -> str:
     return re.split(r"\s+(?:[-—–:])\s+", entity_text, maxsplit=1)[0].strip()
 
 
-def _numbered_h3_entity_tokens(heading: Dict[str, Any]) -> set[str]:
-    """Return the full entity contract for a numbered H3 list item."""
-    return _specific_tokens(_token_set_from_text(_numbered_h3_entity_text(heading)))
+def _numbered_entity_tokens(heading: Dict[str, Any]) -> set[str]:
+    """Return the full entity contract for a numbered list item."""
+    return _specific_tokens(_token_set_from_text(_numbered_entity_text(heading)))
 
 
 _ENTITY_PROVIDER_TOKEN_MAP = {
@@ -724,9 +729,9 @@ _ENTITY_PROVIDER_TOKEN_MAP = {
 }
 
 
-def _numbered_h3_provider_tokens(heading: Dict[str, Any]) -> set[str]:
+def _numbered_provider_tokens(heading: Dict[str, Any]) -> set[str]:
     """Translate only concrete entity words for provider-title verification."""
-    tokens = _numbered_h3_entity_tokens(heading)
+    tokens = _numbered_entity_tokens(heading)
     return {_ENTITY_PROVIDER_TOKEN_MAP.get(token, token) for token in tokens}
 
 
@@ -765,18 +770,16 @@ def _heading_specific_selection(
     if not available_headings:
         return [], {}
 
-    # A numbered H3 list is the content's concrete unit (places, apps,
-    # activities…). The preceding H2 is typically an introduction, not a
-    # visual subject. Selecting it wastes one provider request and can place
-    # an exact H3 image beneath unrelated prose.
-    numbered_h3s = [
-        heading
-        for heading in available_headings
-        if int(heading.get("level") or 0) >= 3
-        and re.match(r"^\s*\d{1,3}\s*[.\-):]", str(heading.get("text") or ""))
-    ]
-    if numbered_h3s:
-        available_headings = numbered_h3s
+    # A numbered list item is the content's concrete unit (places, apps,
+    # activities…); a lead-in question heading is an introduction, not a visual
+    # subject. Published posts show the difference plainly — a numbered heading
+    # carries an image roughly 70% of the time, a plain H2 under 20% — so the
+    # order comes from that measurement rather than a hardcoded level test.
+    # The old rule only recognised numbered H3s and therefore treated a post
+    # whose list items are numbered H2s as if it had no concrete subjects.
+    ranked_headings = rank_headings(available_headings)
+    has_priority_targets = any(is_placement_target(heading) for heading in available_headings)
+    available_headings = ranked_headings
 
     files: list[str] = []
     assignments: dict[str, Dict[str, Any]] = {}
@@ -784,7 +787,7 @@ def _heading_specific_selection(
     # A numbered list has more concrete subjects than the requested count, and
     # some of them will not match. Probe further down the list before accepting
     # a partial batch, but never broaden into a generic fallback image.
-    record_limit = max(limit * 2, 10) if numbered_h3s else limit
+    record_limit = max(limit * 2, 10) if has_priority_targets else limit
     records: list[dict[str, Any]] = []
     for heading in available_headings:
         if len(records) >= record_limit:
@@ -799,8 +802,8 @@ def _heading_specific_selection(
 
         chosen = None
         semantic_anchor = _specific_anchor_text(semantic_query)
-        entity_tokens = _numbered_h3_entity_tokens(heading)
-        provider_entity_tokens = _numbered_h3_provider_tokens(heading)
+        entity_tokens = _numbered_entity_tokens(heading)
+        provider_entity_tokens = _numbered_provider_tokens(heading)
         candidates = search_semantic_assets(
             location_query=semantic_query,
             count=max(limit * 3, 10),
@@ -823,9 +826,11 @@ def _heading_specific_selection(
         if not chosen and allow_external:
             if entity_tokens:
                 # Do not contaminate a named entity query with article prose
-                # such as "kendinizi yerli gibi".
-                entity_text = _numbered_h3_entity_text(heading) or heading_text
-                search_query = _heading_to_search_query(entity_text, post_location=post_location)
+                # such as "kendinizi yerli gibi". A numbered list item already
+                # names its own place, so appending the post location only
+                # pushed real words out of the five-word query budget.
+                entity_text = _numbered_entity_text(heading) or heading_text
+                search_query = _heading_to_search_query(entity_text)
                 anchor_tokens = provider_entity_tokens
             else:
                 search_query = _heading_to_search_query(heading_text, post_location=post_location)
@@ -901,11 +906,32 @@ def _heading_specific_selection(
                 f"({error_type}); no generic fallback was used"
             )
 
+    unmatched: list[str] = []
     for index, record in enumerate(records):
         chosen = record["chosen"] or external_results.get(index)
         if chosen and chosen not in assignments:
             files.append(chosen)
             assignments[chosen] = record["heading"]
+        elif not chosen and index not in external_failures:
+            # No provider error, simply nothing that met the exact contract.
+            # Without this line a fail-closed run reported zero images and gave
+            # no reason at all, which is indistinguishable from a broken run.
+            spec = record.get("external_spec")
+            query = spec[0] if spec else ""
+            unmatched.append(
+                f"{str(record['heading'].get('text') or 'başlık')!r}"
+                + (f" (sorgu: {query!r})" if query else "")
+            )
+
+    if diagnostics is not None and unmatched:
+        prefix = (
+            "Hiçbir başlık için tam eşleşen görsel bulunamadı"
+            if not files
+            else f"{len(files)} başlık eşleşti, {len(unmatched)} başlık boş kaldı"
+        )
+        diagnostics.append(
+            f"{prefix}; eşleşmeyen: " + ", ".join(unmatched[:5])
+        )
 
     deduped_files = list(dict.fromkeys(files))
     return deduped_files, {
@@ -959,10 +985,15 @@ def _heading_to_search_query(heading_text: str, post_location: str = "") -> str:
     # and em dashes; require surrounding spaces so compound place names remain
     # intact.
     text = re.split(r"\s+(?:[—–-]|:)\s+", text, maxsplit=1)[0].strip()
-    # Remove emoji and parenthetical
+    # Remove emoji, parentheticals and editorial markers
     text = re.sub(r"[\U00010000-\U0010ffff]", "", text)
     text = re.sub(r"\s*\([^)]*\)", "", text)
-    text = text.strip()
+    text = re.sub(r"\[[^\]]*\]", " ", text)
+    # A list heading names a place and its district ("Şirince, Selçuk"). The
+    # comma is punctuation, not part of either name, and a provider search
+    # never matches it.
+    text = re.sub(r"[,;/]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
 
     # Multi-word phrase replacements (must run before word-level)
     PHRASES = [
@@ -1329,10 +1360,17 @@ def _unsplash_search_download(query: str, count: int) -> list[str]:
 
 
 def _extract_location(post_context: Dict[str, Any]) -> str:
-    """Extract location token from the post slug/title."""
+    """Extract location token from the post slug/title.
+
+    A draft title can carry an editorial marker such as ``[Penova]``. It is
+    workflow bookkeeping, not geography, and it used to travel all the way into
+    the provider query when the post had no slug yet.
+    """
     slug = str(post_context.get("slug") or "").replace("-", " ")
-    title = str(post_context.get("title") or "")
-    return slug or title
+    if slug.strip():
+        return slug
+    title = re.sub(r"\[[^\]]*\]", " ", str(post_context.get("title") or ""))
+    return re.sub(r"\s+", " ", title).strip()
 
 
 def _destination_index_uuids(query: str, count: int) -> list[str]:
