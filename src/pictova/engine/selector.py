@@ -917,9 +917,13 @@ def _heading_specific_selection(
         1 for index, record in enumerate(records)
         if record["chosen"] or external_results.get(index)
     ))
+    attempted_expansions: dict[int, list[str]] = {}
     for index in still_empty[:max(remaining_budget, 0)]:
         heading = records[index]["heading"]
-        for expanded_query in expand_heading_query(str(heading.get("text") or ""), post_context):
+        expanded_queries = expand_heading_query(str(heading.get("text") or ""), post_context)
+        if expanded_queries:
+            attempted_expansions[index] = expanded_queries
+        for expanded_query in expanded_queries:
             anchor_tokens = _specific_tokens(_token_set_from_text(expanded_query))
             if not anchor_tokens:
                 continue
@@ -947,6 +951,17 @@ def _heading_specific_selection(
             diagnostics.append(
                 f"{heading_text!r} için tam eşleşme yoktu; genişletilmiş sorgu "
                 f"kullanıldı: {expanded_query!r}"
+            )
+        # A broadened attempt that found nothing has to be reported too.
+        # Otherwise the receipt looks as though expansion never ran, which is
+        # indistinguishable from the feature being switched off.
+        for index, queries in attempted_expansions.items():
+            if index in broadened:
+                continue
+            heading_text = str(records[index]["heading"].get("text") or "başlık")
+            diagnostics.append(
+                f"{heading_text!r} için genişletilmiş sorgular da sonuç vermedi: "
+                + ", ".join(repr(q) for q in queries)
             )
 
     if diagnostics is not None:

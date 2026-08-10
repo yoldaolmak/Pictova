@@ -126,7 +126,7 @@ def _ask_lm_studio(prompt: str, vision_chain: Any) -> str:
     body = json.dumps({
         "model": "local",
         "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.2,
+        "temperature": 0,
         "max_tokens": 200,
     }).encode()
     request = urllib.request.Request(
@@ -150,7 +150,7 @@ def _ask_gemini(prompt: str, vision_chain: Any) -> str:
     model = env_str("GEMINI_VISION_MODEL") or "gemini-2.5-flash"
     body = json.dumps({
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"maxOutputTokens": 200, "temperature": 0.2},
+        "generationConfig": {"maxOutputTokens": 200, "temperature": 0},
     }).encode()
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/"
