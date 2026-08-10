@@ -101,6 +101,45 @@ def test_quality_gate_bypass_is_reported(monkeypatch, tmp_path):
     assert any("Kalite kapısı devre dışı" in w for w in result.get("warnings", []))
 
 
+def test_quality_gate_bypass_is_off_by_default(monkeypatch):
+    """Fail-closed is the default: only an explicit truthy flag disables the gate."""
+    import src.main as main_module
+
+    source = Path(main_module.__file__).read_text(encoding="utf-8")
+    assert 'os.getenv("YO_ALLOW_FALLBACK_UPLOAD", "0")' in source
+
+    for value in ("", "0", "false", "no", "off"):
+        monkeypatch.setenv("YO_ALLOW_FALLBACK_UPLOAD", value)
+        import os
+
+        assert os.getenv("YO_ALLOW_FALLBACK_UPLOAD", "0").strip().lower() not in {
+            "1", "true", "yes", "on",
+        }
+
+
+def test_native_engine_is_the_default_for_attach(monkeypatch):
+    """The fail-closed engine must be what an unqualified attach runs."""
+    from src.pictova.app import cli, jobs
+
+    parsed = cli.build_parser().parse_args(["attach", "--post", "1"])
+    assert parsed.engine == "native"
+    assert cli._attach_args_to_payload(parsed)["engine"] == "native"
+
+    # The job layer must not quietly fall back to legacy when engine is absent.
+    seen = {}
+    monkeypatch.setattr(jobs, "prepare_attach_request",
+                        lambda **kw: ({"post_id": 1, "site": "yoldaolmak"}, {}, {}))
+    monkeypatch.setattr(jobs, "validate_attach_request", lambda **kw: None)
+    monkeypatch.setattr(jobs, "execute_native_attach",
+                        lambda **kw: seen.setdefault("engine", "native") and {} or {"status": "success"})
+    monkeypatch.setattr(jobs, "execute_legacy_attach",
+                        lambda **kw: seen.setdefault("engine", "legacy") and {} or {"status": "success"})
+    monkeypatch.setattr(jobs, "_write_attach_receipt", lambda result: "/tmp/receipt.json")
+
+    jobs.run_attach_job(site="yoldaolmak", post_id=1)
+    assert seen["engine"] == "native"
+
+
 def test_local_output_never_overwrites_an_existing_file(tmp_path):
     """The VIL move used Path.replace, silently destroying a same-named file."""
     from src.main import _free_destination

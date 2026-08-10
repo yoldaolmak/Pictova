@@ -54,6 +54,8 @@ def test_run_attach_job_derives_location_and_constraints(monkeypatch):
         content_filter=None,
         language="tr",
         people_first=True,
+        # The legacy pipeline is no longer the default; it must be asked for.
+        engine="legacy",
     )
 
     assert result["status"] == "success"
@@ -63,6 +65,7 @@ def test_run_attach_job_derives_location_and_constraints(monkeypatch):
     assert result["uploaded_media_ids"] == [11, 12]
     assert result["inserted_blocks"] == 2
     assert result["rejected_assets"][0]["file"] == "c.webp"
+    assert result["receipt_path"]
 
 
 def test_cli_review_command_outputs_post_context(monkeypatch, capsys):
@@ -106,6 +109,28 @@ def test_run_attach_job_fails_when_semantic_query_cannot_be_derived(monkeypatch)
     assert result["status"] == "failed"
     assert result["selected_assets"] == []
     assert "location_query could not be derived" in result["warnings"][0]
+
+
+def test_derive_location_query_uses_destination_from_branded_title():
+    from src.pictova.engine.attach import derive_location_query
+
+    assert derive_location_query({"slug": "", "title": "Karaburun Gezi Rehberi — Penovate"}) == "karaburun"
+    assert derive_location_query({"slug": "", "title": "Karaburun Gezi Rehberi: Karaburun Gezilecek Yerler"}) == "karaburun"
+
+
+def test_cli_parser_exposes_native_local_and_auto_sources():
+    from src.pictova.app.cli import build_parser
+
+    parser = build_parser()
+    local_args = parser.parse_args([
+        "attach", "--post", "267970", "--source", "local", "--query", "/tmp/a.jpg",
+    ])
+    auto_args = parser.parse_args(["plan", "--post", "267970", "--source", "auto"])
+    guard_args = parser.parse_args(["guard", "--post", "267970", "--repair"])
+
+    assert local_args.source == "local"
+    assert auto_args.source == "auto"
+    assert guard_args.repair is True
 
 
 def test_api_attach_images_reuses_job_contract(monkeypatch):
@@ -245,6 +270,16 @@ def test_run_attach_job_native_engine_uses_native_pipeline(monkeypatch):
     )
     monkeypatch.setattr(
         attach_engine,
+        "quality_gate_native_batch",
+        lambda **kwargs: (
+            kwargs["processed_images"],
+            kwargs["metadata_dict"],
+            kwargs["processed_details"],
+            [],
+        ),
+    )
+    monkeypatch.setattr(
+        attach_engine,
         "finalize_publish_assets",
         lambda **kwargs: (
             ["roma-semantik-1.webp", "roma-semantik-2.webp"],
@@ -284,6 +319,43 @@ def test_run_attach_job_native_engine_uses_native_pipeline(monkeypatch):
     assert result["selected_assets"] == ["roma-1.jpg", "roma-2.jpg"]
     assert "vision metadata enabled" in result["warnings"][0]
     assert seen["processed_images"] == ["roma-semantik-1.webp", "roma-semantik-2.webp"]
+
+
+def test_native_attach_preserves_selector_heading_assignment(monkeypatch):
+    from src.pictova.engine import attach
+
+    assigned = attach._compute_assigned_headings(
+        ["/tmp/airbnb_yo.webp", "/tmp/blablacar_yo.webp"],
+        {},
+        {"available_headings": [{"text": "Giriş", "level": 2}]},
+        processed_details={
+            "/tmp/airbnb_yo.webp": {"input": "/tmp/airbnb.jpg"},
+            "/tmp/blablacar_yo.webp": {"input": "/tmp/blablacar.jpg"},
+        },
+        heading_assignments={
+            "/tmp/airbnb.jpg": {"text": "1. Airbnb", "level": 3},
+            "/tmp/blablacar.jpg": {"text": "2. BlaBlaCar", "level": 3},
+        },
+    )
+
+    assert assigned["/tmp/airbnb_yo.webp"]["text"] == "1. Airbnb"
+    assert assigned["/tmp/blablacar_yo.webp"]["text"] == "2. BlaBlaCar"
+
+
+def test_native_attach_refuses_when_same_post_is_locked(monkeypatch):
+    from src.pictova.engine import attach
+
+    monkeypatch.setattr(attach, "_try_acquire_attach_lock", lambda site, post_id: None)
+
+    result = attach.execute_native_attach(
+        site="gezgindunyasi",
+        request={"post_id": 34661, "source": "local", "count": 1, "query": "/tmp/exact.jpg"},
+        post_context={},
+        constraints={},
+    )
+
+    assert result["status"] == "failed"
+    assert "already in progress" in result["warnings"][0]
 
 
 def test_run_attach_job_native_engine_blocks_low_quality_assets(monkeypatch):
@@ -356,10 +428,79 @@ def test_run_attach_job_native_engine_blocks_low_quality_assets(monkeypatch):
         engine="native",
     )
 
-    assert result["status"] == "success"
+    assert result["status"] == "failed"
     assert result["uploaded_media_ids"] == []
     assert result["rejected_assets"][0]["file"] == "roma-1_yo.webp"
     assert "title too short" in result["rejected_assets"][0]["errors"]
+
+
+def test_run_attach_job_publishes_partial_exact_selection(monkeypatch):
+    from src.pictova.app import jobs
+    from src.pictova.engine import attach as attach_engine
+
+    monkeypatch.setattr(
+        attach_engine,
+        "fetch_post_context",
+        lambda post_id, site="yoldaolmak": {"id": post_id, "title": "Yalnız Seyahat", "slug": "yalniz-seyahat"},
+    )
+    monkeypatch.setattr(
+        attach_engine,
+        "resolve_source_images",
+        lambda **kwargs: {"source": "auto", "files": ["solo-1.jpg", "solo-2.jpg"]},
+    )
+    monkeypatch.setattr(
+        attach_engine,
+        "process_selected_images",
+        lambda files: {
+            "processed_images": ["solo-1.webp", "solo-2.webp"],
+            "processed_details": {},
+            "panoramic_images": {},
+            "work_dir": "/tmp/vil-native",
+        },
+    )
+    monkeypatch.setattr(
+        attach_engine,
+        "build_native_metadata_map",
+        lambda image_files, **kwargs: (
+            {path: {"title": path, "alt": path, "caption": path, "description": path} for path in image_files},
+            [],
+        ),
+    )
+    monkeypatch.setattr(
+        attach_engine,
+        "quality_gate_native_batch",
+        lambda **kwargs: (["solo-1.webp", "solo-2.webp"], kwargs["metadata_dict"], {}, []),
+    )
+    monkeypatch.setattr(
+        attach_engine,
+        "finalize_publish_assets",
+        lambda **kwargs: (kwargs["processed_images"], kwargs["metadata_dict"], {}),
+    )
+    monkeypatch.setattr(
+        attach_engine,
+        "publish_processed_images",
+        lambda **kwargs: {
+            "uploaded": [{"media_id": 1}, {"media_id": 2}],
+            "failed": [],
+            "content_update": {"inserted": 2},
+        },
+    )
+
+    result = jobs.run_attach_job(
+        site="yoldaolmak",
+        post_id=264459,
+        count=3,
+        source="auto",
+        location_query=None,
+        content_filter=None,
+        language="tr",
+        people_first=False,
+        engine="native",
+    )
+
+    assert result["status"] == "partial"
+    assert result["uploaded_media_ids"] == [1, 2]
+    assert "2/3 exact matches" in result["warnings"][0]
 
 
 def test_insert_before_first_h2_preserves_gutenberg_heading_block():
@@ -387,7 +528,6 @@ def test_build_native_metadata_map_raises_without_any_vision_source(monkeypatch)
     with pytest.raises(RuntimeError, match="Hiç vision kaynağı bulunamadı"):
         metadata_engine.build_native_metadata_map(
             ["roma-1_yo.webp"],
-            location_hint="Roma",
             post_context={"title": "Roma Rehberi", "slug": "roma-rehberi"},
         )
 
@@ -434,6 +574,42 @@ def test_http_server_attach_route_uses_api_contract(monkeypatch):
             payload = json.loads(response.read().decode("utf-8"))
         assert payload["status"] == "success"
         assert payload["request"]["post_id"] == 264459
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_http_server_guard_route_uses_api_contract(monkeypatch):
+    from src.pictova.app import server as server_module
+
+    monkeypatch.setattr(
+        server_module,
+        "guard_post",
+        lambda payload: {
+            "command": "guard",
+            "status": "success",
+            "state": "healthy",
+            "request": payload,
+        },
+    )
+
+    server = server_module.serve(host="127.0.0.1", port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = server.server_address
+        request = Request(
+            f"http://{host}:{port}/guard",
+            data=json.dumps({"site": "yoldaolmak", "post_id": 267970}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(request) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        assert payload["status"] == "success"
+        assert payload["state"] == "healthy"
+        assert payload["request"]["post_id"] == 267970
     finally:
         server.shutdown()
         server.server_close()

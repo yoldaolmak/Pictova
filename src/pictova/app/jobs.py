@@ -70,7 +70,11 @@ def run_attach_job(**kwargs: Any) -> Dict[str, Any]:
     )
     if failed:
         return _finish_attach_job(failed)
-    engine = str(kwargs.get("engine", "legacy")).strip().lower()
+    # The native engine is fail-closed: it refuses to publish an asset that
+    # the quality gate did not approve. The legacy pipeline stays reachable
+    # with an explicit engine="legacy", but it is no longer the default for
+    # the CLI or the HTTP surface.
+    engine = str(kwargs.get("engine", "native")).strip().lower()
     try:
         if engine == "native":
             result = execute_native_attach(

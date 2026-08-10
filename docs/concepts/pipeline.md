@@ -71,11 +71,14 @@ Output is a structured JSON contract:
 
 Two engine implementations exist:
 
-- **Legacy** (default): wraps the existing orchestrator. Battle-tested, richer semantic metadata.
-- **Native** (`--engine native`): built entirely on `src/pictova/engine/*`. Cleaner architecture, in active development.
+- **Native** (default): built entirely on `src/pictova/engine/*`. Fail-closed — an asset the quality gate
+  rejects is never published.
+- **Legacy** (`--engine legacy`): wraps the original orchestrator. Kept for comparison; its quality gate can be
+  disabled with `YO_ALLOW_FALLBACK_UPLOAD`, so it can publish assets that failed validation.
 
 ```bash
-pictova attach --site yoldaolmak --post 265713 --count 4 --engine native
+pictova attach --site yoldaolmak --post 265713 --count 4          # native
+pictova attach --site yoldaolmak --post 265713 --count 4 --engine legacy
 ```
 
 See [Native vs Legacy Engine](../architecture/native-vs-legacy.md) for the full comparison.
