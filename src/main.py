@@ -9,9 +9,10 @@ Parses user command and orchestrates full pipeline
 import re
 import json
 import os
+import math
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from datetime import datetime
 
 from src.core.media_quality import normalize_text, validate_metadata, validate_processed_asset
@@ -28,10 +29,12 @@ from src.core.metadata_generator import (
 )
 from src.services.wordpress import fetch_post_context, upload_images_batch
 
-try:
-    from src.core.cloud_vision import YOCloudVisionClient, generate_metadata_for_files as generate_gv_metadata
-except ImportError:
-    generate_metadata_for_files = None
+# NOTE: a `src.core.cloud_vision` import used to sit here. The module does not
+# exist, and the except branch bound a different name than the try branch, so
+# `YOCloudVisionClient` was never defined. Every run then raised NameError
+# inside the Google Vision step and swallowed it as a warning — the step has
+# never actually run. It is removed rather than repaired: nothing downstream
+# consumed its hints.
 
 
 # ── Semantic arama yardımcıları ──────────────────────────────────────────────
@@ -103,6 +106,175 @@ _FILTER_ALIASES: dict[str, str] = {
 }
 
 
+def _row_value(row: Any, key: str, default: Any = None) -> Any:
+    """Read sqlite3.Row and dict values through one safe interface."""
+    try:
+        value = row[key]
+    except (KeyError, IndexError, TypeError):
+        getter = getattr(row, "get", None)
+        value = getter(key, default) if getter else default
+    return default if value is None else value
+
+
+def _capture_time(row: Any) -> datetime | None:
+    raw = str(_row_value(row, "created_at", "") or "").strip()
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _distance_meters(left: Any, right: Any) -> float | None:
+    try:
+        lat1 = float(_row_value(left, "latitude"))
+        lon1 = float(_row_value(left, "longitude"))
+        lat2 = float(_row_value(right, "latitude"))
+        lon2 = float(_row_value(right, "longitude"))
+    except (TypeError, ValueError):
+        return None
+    mean_lat = math.radians((lat1 + lat2) / 2)
+    x = math.radians(lon2 - lon1) * math.cos(mean_lat)
+    y = math.radians(lat2 - lat1)
+    return 6_371_000 * math.sqrt(x * x + y * y)
+
+
+def _same_capture_burst(left: Any, right: Any) -> bool:
+    """Treat near-simultaneous shots from the same position as one candidate."""
+    left_time = _capture_time(left)
+    right_time = _capture_time(right)
+    if left_time is None or right_time is None:
+        return False
+    try:
+        seconds = abs((left_time - right_time).total_seconds())
+    except TypeError:
+        return False
+    distance = _distance_meters(left, right)
+    return seconds <= 120 and distance is not None and distance <= 250
+
+
+def _perceptual_hash(path: str, hash_size: int = 8) -> int | None:
+    """Return a small dHash for inexpensive visual near-duplicate filtering."""
+    if not path:
+        return None
+    try:
+        from PIL import Image, ImageOps
+
+        with Image.open(path) as image:
+            image = ImageOps.exif_transpose(image).convert("L")
+            resampling = getattr(Image, "Resampling", Image).LANCZOS
+            pixels = list(image.resize((hash_size + 1, hash_size), resampling).getdata())
+    except Exception:
+        return None
+
+    value = 0
+    width = hash_size + 1
+    for row in range(hash_size):
+        offset = row * width
+        for column in range(hash_size):
+            value = (value << 1) | int(pixels[offset + column] > pixels[offset + column + 1])
+    return value
+
+
+def _contains_people(row: Any) -> bool:
+    try:
+        people = json.loads(str(_row_value(row, "people_json", "[]") or "[]"))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        people = []
+    if isinstance(people, list) and people:
+        return True
+    try:
+        labels = json.loads(str(_row_value(row, "apple_labels_json", "[]") or "[]"))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        labels = []
+    return any(str(label).lower() in {"person", "people", "face", "portrait"} for label in labels)
+
+
+def _select_diverse_rows(
+    rows: list[Any],
+    count: int,
+    *,
+    include_icloud: bool = False,
+    allow_people: bool = False,
+) -> list[Any]:
+    """Keep quality order while suppressing burst and perceptual duplicates."""
+    selected: list[Any] = []
+    selected_hashes: list[int] = []
+    seen_assets: set[str] = set()
+
+    for row in rows:
+        source_path = str(_row_value(row, "source_path", "") or "")
+        source_id = str(_row_value(row, "source_id", "") or "")
+        asset_key = source_path or (f"icloud://{source_id}" if include_icloud and source_id else "")
+        if not asset_key or asset_key in seen_assets:
+            continue
+        if not allow_people and _contains_people(row):
+            continue
+        if any(_same_capture_burst(row, previous) for previous in selected):
+            continue
+
+        image_hash = _perceptual_hash(source_path) if source_path and Path(source_path).exists() else None
+        if image_hash is not None and any(bin(image_hash ^ previous).count("1") <= 8 for previous in selected_hashes):
+            continue
+
+        selected.append(row)
+        seen_assets.add(asset_key)
+        if image_hash is not None:
+            selected_hashes.append(image_hash)
+        if len(selected) >= count:
+            break
+
+    return selected
+
+
+def _expand_trip_candidates(conn: Any, seed_rows: list[Any], count: int, *, include_icloud: bool) -> list[Any]:
+    """Expand sparse text matches with nearby assets captured on the same trip days."""
+    coordinates = []
+    dates = set()
+    for row in seed_rows:
+        created_at = str(_row_value(row, "created_at", "") or "")
+        if len(created_at) >= 10:
+            dates.add(created_at[:10])
+        try:
+            coordinates.append((float(_row_value(row, "latitude")), float(_row_value(row, "longitude"))))
+        except (TypeError, ValueError):
+            continue
+
+    if not coordinates or not dates:
+        return []
+
+    min_lat = min(lat for lat, _ in coordinates) - 0.03
+    max_lat = max(lat for lat, _ in coordinates) + 0.03
+    min_lon = min(lon for _, lon in coordinates) - 0.04
+    max_lon = max(lon for _, lon in coordinates) + 0.04
+    trip_dates = sorted(dates)[:7]
+    date_placeholders = ",".join("?" for _ in trip_dates)
+    local_clause = "" if include_icloud else "AND source_path != ''"
+    sql = f"""
+        SELECT source_path, filename, quality_score, selection_score,
+               activity, scene, location, city, state_province,
+               country, title, description, summary, orientation,
+               ai_keywords_json, source_id, created_at, latitude, longitude,
+               vision_scan_status, people_json, apple_labels_json
+        FROM asset_index
+        WHERE is_personal = 0
+          {local_clause}
+          AND latitude BETWEEN ? AND ?
+          AND longitude BETWEEN ? AND ?
+          AND substr(created_at, 1, 10) IN ({date_placeholders})
+        ORDER BY
+          (CASE WHEN vision_scan_status = 'done' THEN 1 ELSE 0 END) DESC,
+          selection_score DESC, quality_score DESC, created_at ASC
+        LIMIT ?
+    """
+    params = [min_lat, max_lat, min_lon, max_lon, *trip_dates, max(count * 20, 100)]
+    try:
+        return conn.execute(sql, params).fetchall()
+    except Exception:
+        return []
+
+
 def search_semantic_assets(
     location_query: str,
     count: int,
@@ -138,24 +310,55 @@ def search_semantic_assets(
     if not tokens:
         return []
 
+    filter_keys = {
+        _FILTER_ALIASES.get(_ascii_normalize(item.strip()), "")
+        for item in str(content_filter or "").split(",")
+        if item.strip()
+    }
+    allow_people = bool(filter_keys & {"insan", "portrait"})
+
     # FTS5 MATCH sorgusu — her token AND mantığıyla, prefix match için *
     fts_query = " ".join(f'"{t}"*' for t in tokens)
 
-    # İçerik filtresi SQL
-    cf_key = _ascii_normalize(content_filter or "")
-    canonical_cf = _FILTER_ALIASES.get(cf_key)
-    content_sql = CONTENT_FILTER_SQL.get(canonical_cf or "", "") if canonical_cf else ""
+    # İçerik filtresi SQL (Dinamik)
+    content_sql_parts = []
+    content_sql_params = []
+    
+    if content_filter:
+        for raw_item in str(content_filter).split(','):
+            item = raw_item.strip().lower()
+            if not item:
+                continue
+                
+            norm_item = _ascii_normalize(item)
+            
+            if norm_item == "dikey":
+                content_sql_parts.append("a.orientation = 'portrait'")
+            elif norm_item == "yatay":
+                content_sql_parts.append("a.orientation = 'landscape'")
+            else:
+                canonical_cf = _FILTER_ALIASES.get(norm_item)
+                if canonical_cf and canonical_cf in CONTENT_FILTER_SQL:
+                    content_sql_parts.append(CONTENT_FILTER_SQL[canonical_cf])
+                else:
+                    # Serbest metin -> keyword / people / description araması
+                    content_sql_parts.append("(a.ai_keywords_json LIKE ? OR a.description LIKE ? OR a.people_json LIKE ?)")
+                    like_val = f"%{item}%"
+                    content_sql_params.extend([like_val, like_val, like_val])
+                    
+    content_filter_clause = f"AND ({' AND '.join(content_sql_parts)})" if content_sql_parts else ""
 
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
         # FTS ile eşleşen source_id'leri bul, asset_index ile JOIN et
-        content_filter_clause = f"AND {content_sql}" if content_sql else ""
         sql = f"""
             SELECT a.source_path, a.filename, a.quality_score, a.selection_score,
                    a.activity, a.scene, a.location, a.city, a.state_province,
                    a.country, a.title, a.description, a.summary, a.orientation,
-                   a.ai_keywords_json, a.source_id
+                   a.ai_keywords_json, a.source_id, a.created_at, a.latitude,
+                   a.longitude, a.vision_scan_status, a.people_json,
+                   a.apple_labels_json
             FROM asset_search s
             JOIN asset_index a ON a.source_id = s.source_id
             WHERE s.document MATCH ?
@@ -168,9 +371,11 @@ def search_semantic_assets(
             LIMIT ?
         """
         try:
-            rows = conn.execute(sql, [fts_query, max(count * 4, 30)]).fetchall()
-        except Exception:
-            # FTS MATCH hatası (özel karakter vb.) → LIKE fallback
+            params = [fts_query] + content_sql_params + [max(count * 4, 30)]
+            rows = conn.execute(sql, params).fetchall()
+        except sqlite3.Error:
+            # FTS MATCH hatası (özel karakter vb.) → LIKE fallback.
+            # Yalnızca sqlite hatası yutulur; programlama hatası yukarı çıkar.
             rows = []
 
         # FTS sonuç yetersizse LIKE fallback (tek token, city/state_province)
@@ -180,20 +385,43 @@ def search_semantic_assets(
                 for _ in tokens
             )
             like_params = [f"%{t.lower()}%" for t in tokens for _ in range(2)]
+            
+            # LIKE fallback için content filter alanlarındaki a. öneklerini kaldır
+            fallback_content_clause = content_filter_clause.replace('a.', '') if content_filter_clause else ''
+            
             fb_sql = f"""
                 SELECT source_path, filename, quality_score, selection_score,
                        activity, scene, location, city, state_province,
                        country, title, description, summary, orientation,
-                       ai_keywords_json, source_id
+                       ai_keywords_json, source_id, created_at, latitude,
+                       longitude, vision_scan_status, people_json,
+                       apple_labels_json
                 FROM asset_index
                 WHERE ({like_clauses}) AND is_personal = 0
-                  {content_filter_clause.replace('AND ', 'AND ', 1) if content_filter_clause else ''}
+                  {fallback_content_clause}
                 ORDER BY selection_score DESC, quality_score DESC
                 LIMIT ?
             """
             seen = {r["source_path"] for r in rows}
-            fb_rows = conn.execute(fb_sql, [*like_params, max(count * 4, 30)]).fetchall()
+            fb_params = like_params + content_sql_params + [max(count * 4, 30)]
+            try:
+                fb_rows = conn.execute(fb_sql, fb_params).fetchall()
+            except sqlite3.Error:
+                # The FTS branch above degrades to this fallback; the fallback
+                # itself had no guard, so a schema mismatch took down the whole
+                # search instead of returning no candidates.
+                fb_rows = []
             rows = list(rows) + [r for r in fb_rows if r["source_path"] not in seen]
+
+        if not content_filter and len(_select_diverse_rows(
+            list(rows), count, include_icloud=include_icloud, allow_people=allow_people
+        )) < count:
+            seen_ids = {str(_row_value(row, "source_id", "")) for row in rows}
+            trip_rows = _expand_trip_candidates(conn, list(rows), count, include_icloud=include_icloud)
+            rows = list(rows) + [
+                row for row in trip_rows
+                if str(_row_value(row, "source_id", "")) not in seen_ids
+            ]
     finally:
         conn.close()
 
@@ -202,19 +430,34 @@ def search_semantic_assets(
         rows = sorted(rows, key=lambda r: _hero_score(r, post_context), reverse=True)
 
     paths: list[str] = []
-    for row in rows:
-        src = row["source_path"] or ""
+    for row in _select_diverse_rows(
+        list(rows), count, include_icloud=include_icloud, allow_people=allow_people
+    ):
+        src = str(_row_value(row, "source_path", "") or "")
         if not src:
             if include_icloud:
                 # iCloud source_id (UUID) döndür — üst katman indirir
-                paths.append(f"icloud://{row['source_id']}")
+                paths.append(f"icloud://{_row_value(row, 'source_id', '')}")
             continue
-        p = Path(src)
-        if p.exists():
-            paths.append(str(p))
-        if len(paths) >= count:
-            break
+        paths.append(src)
     return paths
+
+
+def _free_destination(directory: Path, filename: str) -> Path:
+    """Return a path in `directory` that does not overwrite an existing file.
+
+    The local-output step used Path.replace directly, so a rerun silently
+    destroyed the previous run's output of the same name.
+    """
+    destination = directory / filename
+    if not destination.exists():
+        return destination
+    stem, suffix = destination.stem, destination.suffix
+    counter = 2
+    while destination.exists():
+        destination = directory / f"{stem}-{counter}{suffix}"
+        counter += 1
+    return destination
 
 
 def load_vil_images_from_index(count: int | None = None, name: str | None = None) -> List[str]:
@@ -229,23 +472,23 @@ def _tokenize_focus(text: str) -> list[str]:
 
 
 def _hero_score(row: Dict, post_context: Dict) -> float:
-    score = float(row["quality_score"] or 0)
+    score = float(_row_value(row, "quality_score", 0) or 0)
     title_tokens = _tokenize_focus(post_context.get("title", ""))
     slug_tokens = _tokenize_focus(str(post_context.get("slug", "")).replace("-", " "))
     focus_tokens = title_tokens[:6] + [token for token in slug_tokens if token not in title_tokens][:4]
     try:
         import json as _json
-        ai_kws = " ".join(_json.loads(row.get("ai_keywords_json") or "[]"))
+        ai_kws = " ".join(_json.loads(_row_value(row, "ai_keywords_json", "[]") or "[]"))
     except Exception:
         ai_kws = ""
     haystack = " ".join(
         [
-            str(row["filename"] or "").lower(),
-            str(row["title"] or "").lower(),
-            str(row["description"] or "").lower(),
-            str(row["location"] or "").lower(),
-            str(row["activity"] or "").lower(),
-            str(row["summary"] or "").lower(),
+            str(_row_value(row, "filename", "") or "").lower(),
+            str(_row_value(row, "title", "") or "").lower(),
+            str(_row_value(row, "description", "") or "").lower(),
+            str(_row_value(row, "location", "") or "").lower(),
+            str(_row_value(row, "activity", "") or "").lower(),
+            str(_row_value(row, "summary", "") or "").lower(),
             ai_kws.lower(),
         ]
     )
@@ -254,11 +497,11 @@ def _hero_score(row: Dict, post_context: Dict) -> float:
     # vision scan tamamlanmış fotoğraflara bonus
     if ai_kws:
         score += 0.3
-    if row["orientation"] == "landscape":
+    if _row_value(row, "orientation", "") == "landscape":
         score += 0.75
-    if row["scene"] in {"landmark", "street", "nature"}:
+    if _row_value(row, "scene", "") in {"landmark", "street", "nature"}:
         score += 0.5
-    if row["activity"] in {"unknown", "portrait"}:
+    if _row_value(row, "activity", "") in {"unknown", "portrait"}:
         score -= 0.25
     return score
 
@@ -451,7 +694,7 @@ class YOOrchestrator:
 
     def __init__(self, work_dir: Path = None):
         self.work_dir = work_dir or Path("/tmp/yo_upload_work")
-        self.work_dir.mkdir(exist_ok=True)
+        self.work_dir.mkdir(parents=True, exist_ok=True)
 
         self.processor = YOImageProcessor(work_dir=self.work_dir)
         self.log_file = self.work_dir / f"yo_upload_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
@@ -540,6 +783,12 @@ class YOOrchestrator:
             if isinstance(extra, list):
                 image_files = image_files + [str(f) for f in extra]
 
+            if not image_files:
+                # Without this the run reached the metadata step and died on
+                # image_files[0] with a bare IndexError.
+                result["status"] = "failed"
+                result["error"] = "local kaynağı için dosya yolu verilmedi"
+                return result
             missing = [p for p in image_files if not os.path.exists(p)]
             if missing:
                 result["status"] = "failed"
@@ -673,20 +922,6 @@ class YOOrchestrator:
         metadata_source = "fallback"
         vision_hints_map: dict[str, Dict] = {}
 
-        try:
-            client = YOCloudVisionClient()
-            self.log(f"  ☁️  Google Vision recognition for {len(processed_files)} images...")
-            for file in processed_files:
-                analysis = client.analyze(file)
-                if analysis.get("success"):
-                    vision_hints_map[file] = analysis
-                else:
-                    self.log(f"    ⚠️  {Path(file).name}: {str(analysis.get('error', 'vision error'))[:160]}")
-            if vision_hints_map:
-                self.log(f"  ✓ Google Vision recognition: {len(vision_hints_map)} images")
-        except Exception as e:
-            self.log(f"  ⚠️  Google Vision error: {str(e)[:80]}")
-
         def fill_with_generator(generator: YOMetadataGenerator, label: str) -> int:
             added = 0
             missing_files = [f for f in processed_files if f not in metadata_dict]
@@ -798,7 +1033,11 @@ class YOOrchestrator:
                         }
 
             slug_candidates = build_publish_slug_candidates(meta, post_context, slug_source_path)
-            candidate_slug = ensure_unique_slug(slug_candidates[0], used_slugs)
+            # Same guard as the native engine: an empty candidate list must not
+            # raise IndexError in the middle of a publish run.
+            candidate_slug = ensure_unique_slug(
+                slug_candidates[0] if slug_candidates else "seyahat-kare", used_slugs
+            )
             for slug in slug_candidates:
                 trial = ensure_unique_slug(slug, used_slugs)
                 if trial == slug:
@@ -828,10 +1067,17 @@ class YOOrchestrator:
         for meta in metadata_dict.values():
             title_counts[normalize_text(meta.get("title", ""))] += 1
 
+        if allow_fallback_upload:
+            self.log(
+                "  ⚠️  YO_ALLOW_FALLBACK_UPLOAD açık — kalite kapısı DEVRE DIŞI. "
+                "Doğrulamadan geçemeyen görseller yine de yayınlanacak."
+            )
+
         approved_files: list[str] = []
         approved_metadata: dict[str, Dict] = {}
         approved_details: dict[str, Dict] = {}
         blocked_assets: list[Dict] = []
+        bypassed_assets: list[Dict] = []
         for file in processed_files:
             meta = metadata_dict[file]
             process_info = processed_details.get(file)
@@ -845,6 +1091,9 @@ class YOOrchestrator:
                     approved_files.append(file)
                     approved_metadata[file] = meta
                     approved_details[file] = process_info or {}
+                    # A bypass must be visible in the result, not only in the log:
+                    # the receipt used to look identical to a clean run.
+                    bypassed_assets.append({"file": Path(file).name, "errors": errors})
                     self.log(f"  ⚠ Approved with warnings {Path(file).name}: {'; '.join(errors)}")
                     continue
                 blocked_assets.append({"file": Path(file).name, "errors": errors})
@@ -861,7 +1110,14 @@ class YOOrchestrator:
         result["steps"]["quality_gate"] = {
             "approved": len(processed_files),
             "blocked": blocked_assets,
+            "bypassed": bypassed_assets,
+            "gate_disabled": allow_fallback_upload,
         }
+        if bypassed_assets:
+            result.setdefault("warnings", []).append(
+                f"Kalite kapısı devre dışı (YO_ALLOW_FALLBACK_UPLOAD): "
+                f"{len(bypassed_assets)} görsel doğrulamadan geçmeden yayınlandı"
+            )
 
         result["steps"]["metadata_generated"] = {
             "count": len(metadata_dict),
@@ -885,7 +1141,7 @@ class YOOrchestrator:
             self.log(f"\n💾 STEP 4: Yerel çıktı → {vil_dir}")
             moved: list[str] = []
             for f in processed_files:
-                dest = vil_dir / Path(f).name
+                dest = _free_destination(vil_dir, Path(f).name)
                 Path(f).replace(dest)
                 moved.append(str(dest))
                 self.log(f"  ✓ {Path(f).name} → {vil_dir.name}/")
@@ -930,7 +1186,7 @@ class YOOrchestrator:
         self.log(f"{'='*60}")
 
         # Save log
-        with open(self.log_file, "w") as f:
+        with open(self.log_file, "w", encoding="utf-8") as f:
             json.dump(result, f, indent=2)
         self.log(f"\n📝 Log saved: {self.log_file}")
 

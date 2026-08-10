@@ -38,7 +38,7 @@ class YOImageProcessor:
 
     def __init__(self, work_dir: Path = None):
         self.work_dir = work_dir or Path("/tmp/yo_image_work")
-        self.work_dir.mkdir(exist_ok=True)
+        self.work_dir.mkdir(parents=True, exist_ok=True)
 
     def _heic_to_jpeg(self, input_p: Path) -> Path:
         """Convert HEIC/HEIF to JPEG using macOS sips. Returns path to converted file.
@@ -209,7 +209,9 @@ class YOImageProcessor:
         self,
         input_path: str,
         output_path: str,
-        auto_saturation: bool = True
+        auto_saturation: bool = True,
+        webp_mode: str = "lossy",
+        preserve_exif: bool = False,
     ) -> Dict:
         """Full image processing pipeline
 
@@ -230,13 +232,21 @@ class YOImageProcessor:
         print(f"\n📷 Processing: {input_p.name}")
 
         # HEIC/HEIF → JPEG via sips (macOS) before PIL opens it
+        heic_temp: Path | None = None
         if input_p.suffix.lower() in {".heic", ".heif"}:
             input_p = self._heic_to_jpeg(input_p)
+            heic_temp = input_p
             print(f"  ✓ HEIC converted via sips")
 
         # Load
         # Normalize EXIF orientation first so rotated phone images are upright.
-        img = ImageOps.exif_transpose(Image.open(str(input_p))).convert("RGB")
+        try:
+            img = ImageOps.exif_transpose(Image.open(str(input_p))).convert("RGB")
+        finally:
+            # The sips intermediate is never read again; leaving it behind grew
+            # work_dir on every HEIC run.
+            if heic_temp is not None:
+                heic_temp.unlink(missing_ok=True)
         orig_size = (img.width, img.height)
         print(f"  Original: {img.width}x{img.height}")
 
@@ -256,24 +266,40 @@ class YOImageProcessor:
         # Apply filter
         img, filter_params = self.apply_yo_filter(img, saturation_mod=sat_mod)
 
-        # Clean EXIF
-        data = list(img.getdata())
-        image_without_exif = Image.new(img.mode, img.size)
-        image_without_exif.putdata(data)
-        img = image_without_exif
-        print(f"  ✓ EXIF cleaned")
+        # Clean EXIF unless preserve_exif is True
+        if not preserve_exif:
+            # Pillow copies pixels without the source metadata; the previous
+            # getdata()/putdata() round-trip materialised every pixel as a
+            # Python tuple for the same result.
+            stripped = Image.new(img.mode, img.size)
+            stripped.paste(img)
+            img = stripped
+            print(f"  ✓ EXIF cleaned")
+        else:
+            print(f"  ✓ EXIF preserved")
 
         # Export WebP
         output_p.parent.mkdir(parents=True, exist_ok=True)
-        img.save(str(output_p), 'WEBP', quality=80, method=6)
+        if webp_mode.lower() == "lossless":
+            img.save(str(output_p), 'WEBP', quality=100, method=6, lossless=True)
+            print("  ✓ WebP saved (lossless)")
+        else:
+            img.save(str(output_p), 'WEBP', quality=80, method=6)
+            print("  ✓ WebP saved (lossy)")
+            
         file_size_kb = output_p.stat().st_size / 1024
-        print(f"  ✓ WebP saved: {file_size_kb:.1f} KB")
+        print(f"  ✓ File size: {file_size_kb:.1f} KB")
 
         arr = np.array(img, dtype=np.float32) / 255.0
         brightness = float(np.mean(arr))
         rgb_max = np.maximum.reduce([arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]])
         rgb_min = np.minimum.reduce([arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]])
         saturation = float(np.mean((rgb_max - rgb_min) / (rgb_max + 1e-6)))
+
+        # Blur analysis
+        edges = img.convert("L").filter(ImageFilter.FIND_EDGES)
+        blur_score = float(np.var(np.array(edges)))
+        print(f"  ✓ Blur score: {blur_score:.1f}")
 
         return {
             "input": str(input_path),
@@ -286,6 +312,7 @@ class YOImageProcessor:
             "brightness": brightness,
             "saturation": saturation,
             "contrast": float(np.std(arr)),
+            "blur_score": blur_score,
             "color_temp": float(np.mean(arr[:, :, 2]) - np.mean(arr[:, :, 0])),
             "house_style": filter_params.get("house_style", {}),
             "is_panoramic": filter_params.get("is_panoramic", False),

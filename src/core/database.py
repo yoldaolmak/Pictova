@@ -137,31 +137,6 @@ class VisualMemoryComponent:
         finally:
             self.db.close()
     
-    def get_all_images(self, limit: int = 1000) -> List[Dict[str, Any]]:
-        """Get all images from database"""
-        cursor = self.db.execute("""
-            SELECT * FROM images
-            ORDER BY created_at DESC
-            LIMIT ?
-        """, (limit,))
-        return [dict(row) for row in cursor.fetchall()]
-    
-    def get_image_by_path(self, path: str) -> Optional[Dict[str, Any]]:
-        """Get image by path"""
-        cursor = self.db.execute("""
-            SELECT * FROM images WHERE path = ?
-        """, (path,))
-        row = cursor.fetchone()
-        return dict(row) if row else None
-    
-    def get_tags_for_image(self, image_id: int) -> List[str]:
-        """Get all tags for an image"""
-        cursor = self.db.execute("""
-            SELECT tag FROM tags WHERE image_id = ?
-            ORDER BY confidence DESC
-        """, (image_id,))
-        return [row['tag'] for row in cursor.fetchall()]
-
 
 def query_asset_from_visual_memory(db_path: Path, source_path: str) -> Optional[Dict[str, Any]]:
     """Return the asset_index record for source_path, or None if not found."""

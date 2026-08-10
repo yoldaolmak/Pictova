@@ -75,14 +75,19 @@ class YOMetadataGenerator:
         raw = os.environ.get("YO_OPENAI_VISION_MODELS", "").strip()
         if raw:
             return [item.strip() for item in raw.split(",") if item.strip()]
-        return ["gpt-4.1", "gpt-4o"]
+        # Metadata is a bounded visual-description task; mini models are the
+        # safe default. An operator may still override this via
+        # YO_OPENAI_VISION_MODELS when a specific post warrants it.
+        return ["gpt-4.1-mini", "gpt-4o-mini"]
 
     def _load_claude_models(self) -> list[str]:
         raw = os.environ.get("YO_CLAUDE_VISION_MODELS", "").strip()
         if raw:
             return [item.strip() for item in raw.split(",") if item.strip()]
+        # "claude-sonnet-4-6" sat here and is not a real model id: every run
+        # spent its first request on a 404 before falling through.
         return [
-            "claude-sonnet-4-6",
+            "claude-sonnet-4-5-20250929",
             "claude-haiku-4-5-20251001",
             "claude-3-5-sonnet-20241022",
         ]
@@ -177,19 +182,20 @@ class YOMetadataGenerator:
         seq = f"{image_index + 1}/{total_images}" if (image_index is not None and total_images) else "?"
         vision_text = format_vision_hints(vision_hints)
 
-        return f"""WordPress medya metadata üret. Sadece JSON döndür.
+        return f"""WordPress görsel metadatalarını seyahat blogu bağlamında üret. Sadece JSON döndür.
 
 Bağlam: title={article_title or "?"} | slug={article_slug or "?"} | focus={focus_terms or "?"} | hint={location_hint or "?"} | dosya={Path(image_path).name} | sıra={seq}
 {f"Excerpt: {article_excerpt}" if article_excerpt else ""}
 {vision_text}
 
 Kurallar:
-- Türkçe yaz. Gördüğünü yaz, uydurma. Lokasyon adını ancak kuvvetli kanıtla ekle.
-- alt: Türkçe, ekran okuyucu için sade tanım, "Fotoğraf:" ile başlama, max 125 char.
-- title: Türkçe, SEO dostu, lokasyon + sahne, max 60 char.
-- caption: Türkçe, Kemal Kaya üslubu — BBC Travel tonu. Kısa cümle, gözlem odaklı, "Bu fotoğrafta" / "Görselde" gibi AI kalıpları YASAK. Sanki sahneyi hatırlıyorsun gibi yaz.
-- description: Türkçe, lokasyon bağlamı + sahne detayı, SEO uyumlu, max 300 char.
-alt≤125 | title≤60 | caption≤180 | description≤300 | keywords 3-6 | evidence 1-4 | confidence 0-1
+- alt: Ekran okuyucu ve erişilebilirlik için sade görsel tanımı (maks 125 kr).
+- title: Arama motoru için lokasyon ve konuyu içeren SEO başlığı (maks 60 kr, örn: 'Gümüşlük Bodrum Dalgalı Deniz').
+- caption: Kısa, olgusal fotoğraf bilgisi (maks 100 kr). Övgü, sıfat yığını, seyahat ruhu ve hikâye yazma.
+- description: Caption'ın olgusal tamamlayıcısı (maks 160 kr); yeni bilgi yoksa caption ile aynı olabilir.
+- keywords: 3-6 adet anahtar kelime.
+- evidence: Lokasyon kanıtı (1-4 adet).
+- confidence: Lokasyon eminlik skoru (0.0 - 1.0).
 
 {{"alt":"...","title":"...","caption":"...","description":"...","keywords":["k1"],"evidence":["kanıt"],"location_tokens":[],"scene_tokens":["sahne"],"confidence":0.8,"warnings":[]}}"""
 
