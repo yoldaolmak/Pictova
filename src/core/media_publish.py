@@ -24,22 +24,6 @@ BAD_SLUG_TOKENS = {
 }
 FORBIDDEN_FALLBACK_TOKENS = {"genel", "gorsel", "gorunum", "gorunumu"}
 
-# A country name is a destination anchor, never a description of what is
-# pictured, so it must not be picked up as a scene token.  This list started as
-# the Vietnam series hardcoded into three separate helpers; naming it keeps the
-# rule in one place and lets the same slug logic work for any destination.
-COUNTRY_SLUG_TOKENS = {
-    "vietnam", "turkiye", "turkey", "yunanistan", "greece",
-    "makedonya", "macedonia", "italya", "italy", "ispanya", "spain",
-    "portekiz", "portugal", "gurcistan", "georgia", "karadag", "montenegro",
-}
-
-# Well-known destinations inside a country whose names are anchors rather than
-# scene descriptions.  Same role as COUNTRY_SLUG_TOKENS, one level down.
-DESTINATION_SLUG_TOKENS = COUNTRY_SLUG_TOKENS | {
-    "hanoi", "saygon", "halong", "halong-bay", "hoa-lu", "trang-an",
-}
-
 # Editorial filler must never leak from an article headline or a temporary
 # source filename into a published media filename.  These words neither name a
 # place nor identify what is pictured, so retaining them produces slugs such
@@ -186,7 +170,6 @@ GENERIC_SOURCE_TOKENS = {
     "house",
     "in",
     "incredible",
-    "indochina",
     "is",
     "jungle",
     "landmark",
@@ -257,7 +240,6 @@ GENERIC_SOURCE_TOKENS = {
     "unusual",
     "urban",
     "vacation",
-    "vietnamese",
     "view",
     "village",
     "way",
@@ -272,25 +254,10 @@ GENERIC_SOURCE_TOKENS = {
     "leaves",
     "flora",
     "world",
-    "asya",
-    "avrupa",
-    "afrika",
-    "okyanusya",
-    "ortadogu",
     "other",
     "volumes",
     "lacie",
     "travel",
-    "turkiye",
-    "endonezya",
-    "indonesia",
-    "borneo",
-    "filipinler",
-    "malaysia",
-    "thailand",
-    "japan",
-    "china",
-    "india",
 }
 
 SCENE_REMAP = {
@@ -302,8 +269,6 @@ SCENE_REMAP = {
     "port": "liman",
     "boat": "tekne",
     "ship": "tekne",
-    "junk": "tekne",
-    "junks": "tekne",
     "island": "ada",
     "bridge": "kopru",
     "river": "nehir",
@@ -317,7 +282,6 @@ SCENE_REMAP = {
     "night": "gece",
     "market": "pazar",
     "temple": "tapinak",
-    "pagoda": "pagoda",
     "palace": "saray",
     "castle": "kale",
     "garden": "bahce",
@@ -382,22 +346,9 @@ SCENE_REMAP = {
     "rice-field": "pirinc-tarlasi",
 }
 
-# Bilinen destinasyonlar için sabit koordinatlar.
-# Kural:
-# - Spesifik destinasyon adı tespit edilirse (örn. Batum Botanik Bahçesi) onun koordinatı yazılır.
-# - Spesifik tespit yoksa ve ad/slug içinde "batum" geçiyorsa Batum merkez koordinatı fallback olarak yazılır.
-DESTINATION_COORDINATES = {
-    "batum-botanik-bahcesi": (41.6946, 41.7089),
-    "batumi-botanical-garden": (41.6946, 41.7089),
-    "batum": (41.6168, 41.6367),
-    "batumi": (41.6168, 41.6367),
-}
-
 SCENE_PHRASES = {
-    "train-street": "train-street",
     "narrow-street": "sokak",
     "street-market": "pazar-yeri",
-    "floating-market": "pazar-yeri",
     "boat-tour": "tekne",
     "railway": "tren",
     "train": "tren",
@@ -425,7 +376,6 @@ VISION_SCENE_REMAP = {
     "railroad": "tren",
     "bridge": "kopru",
     "temple": "tapinak",
-    "pagoda": "pagoda",
     "palace": "saray",
     "castle": "kale",
     "garden": "bahce",
@@ -459,7 +409,6 @@ VISION_SCENE_REMAP = {
     "pier": "iskele",
     "lighthouse": "denizfeneri",
 }
-
 
 def slugify(value: str) -> str:
     # Büyük harf Türkçe karakterleri ÖNCE dönüştür (İ.lower() → i̇ problemi)
@@ -719,8 +668,6 @@ def _extract_scene_tokens(metadata: Dict, destination_tokens: list[str]) -> list
                 continue
             if token.isdigit():
                 continue
-            if token in DESTINATION_SLUG_TOKENS:
-                continue
             if any(token in existing or existing in token for existing in seen):
                 continue
             if token in seen:
@@ -751,8 +698,6 @@ def _extract_vision_scene_tokens(metadata: Dict, destination_tokens: list[str]) 
         token = VISION_SCENE_REMAP.get(token, token)
         if token in BAD_SLUG_TOKENS or token in GENERIC_POST_TOKENS or token in GENERIC_SCENE_TOKENS or token in GENERIC_SOURCE_TOKENS:
             continue
-        if token in DESTINATION_SLUG_TOKENS:
-            continue
         if any(token in existing or existing in token for existing in seen):
             continue
         seen.add(token)
@@ -763,19 +708,19 @@ def _extract_vision_scene_tokens(metadata: Dict, destination_tokens: list[str]) 
 
 
 def _cleanup_destination_tokens(tokens: list[str]) -> list[str]:
-    # A country name carries no extra information once a more specific place
-    # is present, so it yields to the narrower anchor.
-    if len(tokens) > 1 and any(token in COUNTRY_SLUG_TOKENS for token in tokens):
-        tokens = [token for token in tokens if token not in COUNTRY_SLUG_TOKENS]
+    """Keep at most the two most specific destination tokens found in EXIF."""
     return tokens[:2]
 
 
 def _cleanup_scene_tokens(tokens: list[str]) -> list[str]:
-    if any("train-street" == token for token in tokens):
-        tokens = [token for token in tokens if token != "tren"]
-        tokens = [token for token in tokens if token != "sokak"]
-    if any("pazar-yeri" == token for token in tokens):
-        tokens = [token for token in tokens if token != "pazar"]
+    """Drop the redundant half of a compound scene token.
+
+    "pazar-yeri" already contains "pazar"; keeping both produced slugs that
+    said the same thing twice.
+    """
+    for compound in [token for token in tokens if "-" in token]:
+        parts = set(compound.split("-"))
+        tokens = [token for token in tokens if token == compound or token not in parts]
     return [token for token in tokens if token not in EDITORIAL_SLUG_NOISE_TOKENS][:2]
 
 
@@ -988,14 +933,8 @@ def build_publish_slug_candidates(metadata: Dict, post_context: Dict | None, ori
         source_metadata = read_embedded_source_metadata(original_path)
         if source_metadata:
             metadata["_source_embedded"] = source_metadata
-    source_destination_tokens = _extract_source_destination_tokens(source_metadata or {})
-    verified_locations = _cleanup_destination_tokens(source_destination_tokens)
-    # The country anchor is dropped from `verified_locations` above, but it is
-    # still the qualifier that disambiguates a slug ("halong-vietnam").  Read it
-    # from the uncleaned tokens instead of hardcoding one destination here.
-    country_token = next(
-        (token for token in source_destination_tokens if token in COUNTRY_SLUG_TOKENS),
-        "",
+    verified_locations = _cleanup_destination_tokens(
+        _extract_source_destination_tokens(source_metadata or {})
     )
     verified_location_variants = _extract_source_destination_variants(source_metadata or {})
     scene_tokens = _cleanup_scene_tokens(_extract_scene_tokens(metadata, verified_locations))
@@ -1007,8 +946,6 @@ def build_publish_slug_candidates(metadata: Dict, post_context: Dict | None, ori
         for location in verified_location_variants:
             for variant in (
                 f"{slug_base}-{location}" if slug_base else location,
-                f"{location}-{country_token}" if country_token and location != country_token else "",
-                f"{country_token}-{location}" if country_token and location != country_token else "",
             ):
                 clean = slugify(variant)
                 if clean and clean not in candidates:
@@ -1016,7 +953,6 @@ def build_publish_slug_candidates(metadata: Dict, post_context: Dict | None, ori
         for scene in scene_tokens:
             for variant in (
                 f"{slug_base}-{scene}" if slug_base else scene,
-                f"{country_token}-{scene}" if country_token in verified_locations and country_token else "",
             ):
                 clean = slugify(variant)
                 if clean and clean not in candidates:
@@ -1097,33 +1033,28 @@ def _flatten_text_values(value) -> list[str]:
 
 
 def _resolve_gps_coordinates(path: str, metadata: Dict) -> tuple[float, float] | None:
-    candidates: list[str] = [Path(path).stem]
-    for key in (
-        "title",
-        "alt",
-        "caption",
-        "description",
-        "slug",
-        "keywords",
-        "location_tokens",
-        "verified_locations",
-        "verified_location_variants",
-    ):
-        candidates.extend(_flatten_text_values(metadata.get(key)))
+    """Return coordinates the source asset itself carries, or None.
 
-    slug_haystack = slugify(" ".join(part for part in candidates if part))
-    if not slug_haystack:
-        return None
-
-    # Önce spesifik eşleşmeler
-    for needle in ("batum-botanik-bahcesi", "batumi-botanical-garden"):
-        if needle in slug_haystack:
-            return DESTINATION_COORDINATES[needle]
-
-    # Sonra genel Batum fallback
-    if "batum" in slug_haystack or "batumi" in slug_haystack:
-        return DESTINATION_COORDINATES["batum"]
-
+    A hardcoded lookup table used to sit here. It held exactly one city, so
+    every other destination silently got no coordinates at all, and adding a
+    destination meant editing code. Coordinates are a property of the
+    photograph, not of the publishing pipeline: a personal photo brings its own
+    EXIF position, and a stock asset legitimately has none.
+    """
+    for key in ("gps_coordinates", "coordinates"):
+        value = metadata.get(key)
+        if isinstance(value, (list, tuple)) and len(value) == 2:
+            try:
+                return float(value[0]), float(value[1])
+            except (TypeError, ValueError):
+                return None
+        if isinstance(value, dict):
+            latitude, longitude = value.get("latitude"), value.get("longitude")
+            if latitude is not None and longitude is not None:
+                try:
+                    return float(latitude), float(longitude)
+                except (TypeError, ValueError):
+                    return None
     return None
 
 

@@ -11,20 +11,68 @@ from unittest.mock import patch
 import pytest
 
 
-# ── Selection: destination must not be relocated ────────────────────────────
+# ── Selection: no destination may be named in code ──────────────────────────
 
-def test_island_map_requires_word_boundary():
-    """"Kosova" is Kosovo, not the Greek island Kos."""
-    from src.pictova.engine.selector import _heading_to_search_query
+def test_query_building_never_invents_a_country():
+    """A place the code does not know must not be relocated by a guess.
+
+    "Kosova" used to become the Greek island Kos, and any short query used to
+    collect a " Turkey" suffix. Geography now comes only from the post.
+    """
+    from src.pictova.engine.selector import _heading_to_search_query, _turkify_to_english_query
 
     kosovo = _heading_to_search_query("Kosova Gezisi")
     assert "Kosova" in kosovo
-    assert "Greece" not in kosovo
+    assert "Greece" not in kosovo and "Turkey" not in kosovo
 
-    # The real island still resolves, and still to Greece.
-    kos = _heading_to_search_query("Kos Adası")
-    assert kos.startswith("Kos")
-    assert "Greece" in kos
+    assert "Turkey" not in _turkify_to_english_query("sinop kalesi")
+    # An explicit post location is still honoured — it comes from data.
+    assert "Sinop" in _heading_to_search_query("Kalesi", post_location="Sinop")
+
+
+@pytest.mark.parametrize("module_name", [
+    "src.pictova.engine.selector",
+    "src.pictova.engine.metadata",
+    "src.pictova.engine.quality",
+    "src.core.media_publish",
+    "src.core.media_quality",
+])
+def test_no_destination_names_remain_in_code(module_name):
+    """Guard the principle itself, so a place name cannot creep back in.
+
+    Only executable code and literals count. Comments and docstrings may name
+    a destination when they explain which bug the removal fixed.
+    """
+    import ast
+    import importlib
+    from pathlib import Path
+
+    module = importlib.import_module(module_name)
+
+    tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
+    docstrings = {
+        node.body[0].value
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.ClassDef))
+        and node.body
+        and isinstance(node.body[0], ast.Expr)
+        and isinstance(node.body[0].value, ast.Constant)
+        and isinstance(node.body[0].value.value, str)
+    }
+    literals = " ".join(
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and node not in docstrings
+    ).casefold()
+
+    for place in (
+        "cappadocia", "kapadokya", "istanbul", "sultanahmet", "topkapi",
+        "rhodes", "mykonos", "santorini", "ohrid", "vietnam", "hanoi",
+        "batum", "batumi", "greece", "turkey", "turkiye", "thailand",
+    ):
+        assert place not in literals, f"destination name in {module_name}: {place}"
 
 
 # ── Selection: a provider outage degrades, it does not abort ────────────────

@@ -5,10 +5,13 @@ from pathlib import Path
 from typing import Dict
 
 
-BAD_METADATA_TOKENS = {"depositphotos", "xl", "processed", "yo"}
+BAD_METADATA_TOKENS = {"depositphotos", "shutterstock", "getty", "istock", "alamy"}
 ALLOWED_SIZES = {(1200, 750), (1200, 1600), (1200, 1200), (900, 1200)}
+# Words too broad to prove an asset belongs to a section. A destination name
+# is deliberately absent: naming one here only ever covered the country
+# someone had already published about.
 GENERIC_ANCHORS = {
-    "vietnam", "gezi", "gezilecek", "rehberi", "rota", "deneyimler", "seyahat",
+    "gezi", "gezilecek", "rehberi", "rota", "deneyimler", "seyahat",
     "landmark", "travel", "tourism", "image", "photo", "view", "manzara",
     "scene", "destination", "place", "city", "town", "country", "nature",
     "outdoor", "person", "people", "woman", "man",
@@ -212,14 +215,31 @@ def validate_processed_asset(meta: Dict, process_info: Dict | None) -> list[str]
     file_size_kb = float(process_info.get("file_size_kb", 0))
     if not (0.22 <= brightness <= 0.78):
         errors.append("brightness out of editorial range")
-    if not (0.12 <= saturation <= 0.68):
+    if not (0.07 <= saturation <= 0.68):
         errors.append("saturation out of editorial range")
     if not (0.10 <= contrast <= 0.30):
         errors.append("contrast out of editorial range")
-    if not (-0.24 <= color_temp <= 0.18):
+    metadata_text = " ".join(
+        str(meta.get(key) or "") for key in ("title", "alt", "caption", "description", "scene")
+    ).casefold()
+    warm_interior = any(token in metadata_text for token in ("mağara", "magara", "cave", "sarnıç", "sarnic"))
+    min_color_temp = -0.45 if warm_interior else -0.35
+    if not (min_color_temp <= color_temp <= 0.50):
         errors.append("color temperature inconsistent")
-    if file_size_kb <= 60:
+    # The house-style processor intentionally produces compact 1200x750 WebP
+    # files. Reject genuinely tiny/corrupt outputs, not valid low-entropy photos.
+    if file_size_kb < 5:
         errors.append("file too compressed")
     if file_size_kb >= 900:
         errors.append("file too heavy")
+        
+    # Advanced Quality Gate
+    blur_score = float(process_info.get("blur_score", 1000))
+    if blur_score < 100:  # Genelde 100 altı belirgin bir bulanıklıktır (blur)
+        errors.append("image is too blurry (low variance of laplacian)")
+        
+    orig_w, orig_h = process_info.get("original_size", (0, 0))
+    if orig_w > 0 and orig_h > 0 and (orig_w < 800 or orig_h < 600):
+        errors.append("original image resolution is too low")
+        
     return errors

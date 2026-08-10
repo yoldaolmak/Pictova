@@ -446,7 +446,7 @@ _NON_SPECIFIC_MATCH_TOKENS = GENERIC_ANCHORS | _GENERIC_SEMANTIC_ANCHORS | {
     "beautiful", "guide", "how", "landscapes", "mountain", "mountains",
     "national", "park", "parks", "panorama", "panoramic", "place", "places",
     "rehber", "rehberi", "selaleleri", "waterfalls", "scenic", "sunset",
-    "turkey", "turkiye", "turkish", "greece", "greek", "where", "visit",
+    "where", "visit",
     "bilmeniz", "gerekenler", "gitmeden", "giris", "ucreti", "nasil", "nerede",
     "adasi", "golu", "kalesi", "koyu", "magarasi", "milli", "ormani", "parki",
     "plaji", "sahili", "vadisi", "yaylasi", "gezilecek", "yerler", "ok",
@@ -462,43 +462,6 @@ _TITLE_VERB_TOKENS = {
 }
 
 _TURKISH_ASCII = str.maketrans({"ç": "c", "ğ": "g", "ı": "i", "ö": "o", "ş": "s", "ü": "u"})
-
-_MATCH_TOKEN_EQUIVALENTS = {
-    "bagaj": {"baggage", "luggage"},
-    "bagaji": {"baggage", "luggage"},
-    "boyut": {"size", "sizes", "dimensions"},
-    "boyutlari": {"size", "sizes", "dimensions"},
-    "buyuk": {"large"},
-    "calisanlari": {"workers"},
-    "dijital": {"digital"},
-    "fiyatlari": {"prices"},
-    "gocebe": {"nomad"},
-    "guvenlik": {"security"},
-    "kabin": {"cabin", "carry"},
-    "kapisinda": {"checkpoint"},
-    "kirilan": {"broken", "damaged"},
-    "kisitlamalari": {"restrictions"},
-    "kontrolu": {"control"},
-    "malzeme": {"material"},
-    "markalari": {"brands"},
-    "maddeler": {"items"},
-    "olculer": {"sizes", "dimensions"},
-    "olculeri": {"sizes", "dimensions"},
-    "orta": {"medium"},
-    "pasaport": {"passport"},
-    "polis": {"police"},
-    "sinir": {"border"},
-    "sivi": {"liquid", "liquids"},
-    "samuil": {"samuel", "samuels"},
-    "tazminat": {"claim", "compensation"},
-    "theater": {"theatre"},
-    "ucakta": {"airline", "airport", "flight"},
-    "uzaktan": {"remote"},
-    "valiz": {"suitcase", "luggage"},
-    "vizesi": {"visa"},
-    "yasakli": {"forbidden", "prohibited"},
-}
-
 
 def _canonical_token(value: object) -> str:
     # Lowercasing U+0130 can leave a combining dot that normalize_text drops
@@ -576,21 +539,6 @@ def _context_anchor_tokens(
     ))
 
 
-def _thematic_heading_query(post_context: Dict[str, Any], heading_text: str) -> str:
-    """Create a concrete provider query for broad, non-place travel articles."""
-    post_tokens = _token_set_from_text(post_context.get("title", ""), post_context.get("slug", ""))
-    heading = _canonical_token(heading_text)
-    if {"yalniz", "seyahat"} <= post_tokens:
-        if any(token in heading for token in ("guven", "risk", "gece", "esya", "icgudu")):
-            return "solo traveler travel safety"
-        if any(token in heading for token in ("plan", "karar", "sorumluluk")):
-            return "solo traveler trip planning"
-        if any(token in heading for token in ("insan", "tanis", "sosyal")):
-            return "solo traveler meeting locals"
-        return "solo traveler city travel"
-    return ""
-
-
 def _specific_anchor_text(value: str) -> str:
     token = normalize_text(value)
     if not token or token in _GENERIC_SEMANTIC_ANCHORS:
@@ -626,37 +574,18 @@ def _deposit_result_tokens(result: Dict[str, Any]) -> set[str]:
     return _specific_tokens(_token_set_from_text(result.get("title", "")))
 
 
-def _equivalent_match_tokens(tokens: set[str]) -> set[str]:
-    expanded = set(tokens)
-    for token in tokens:
-        expanded.update(_MATCH_TOKEN_EQUIVALENTS.get(token, set()))
-        for source, equivalents in _MATCH_TOKEN_EQUIVALENTS.items():
-            if token in equivalents:
-                expanded.add(source)
-                expanded.update(equivalents)
-    return expanded
-
-
 def _matching_anchor_count(candidate_tokens: set[str], anchor_tokens: set[str]) -> int:
+    """Count anchors the candidate matches literally or by shared word stem.
+
+    A hand-written TR/EN equivalence table used to sit here. It only ever knew
+    the vocabulary of the articles someone had already published, so it is gone;
+    cross-language matching belongs to the semantic layer.
+    """
     candidate_tokens = _specific_tokens(candidate_tokens)
     anchor_tokens = _specific_tokens(anchor_tokens)
     if not candidate_tokens or not anchor_tokens:
         return 0
-    expanded_candidates = _equivalent_match_tokens(candidate_tokens)
-    matched_anchors = set()
-    for candidate in expanded_candidates:
-        for anchor in anchor_tokens:
-            expanded_anchors = _equivalent_match_tokens({anchor})
-            if candidate in expanded_anchors:
-                matched_anchors.add(anchor)
-                continue
-            if candidate == anchor:
-                matched_anchors.add(anchor)
-                continue
-            shorter, longer = sorted((candidate, anchor), key=len)
-            if len(shorter) >= 6 and len(longer) - len(shorter) <= 3 and longer.startswith(shorter):
-                matched_anchors.add(anchor)
-    return len(matched_anchors)
+    return _literal_matching_anchor_count(candidate_tokens, anchor_tokens)
 
 
 def _literal_matching_anchor_count(candidate_tokens: set[str], anchor_tokens: set[str]) -> int:
@@ -746,7 +675,6 @@ def _candidate_matches_heading(
     post_context: Dict[str, Any] | None = None,
     anchor_text: str = "",
     required_tokens: set[str] | None = None,
-    required_any_tokens: set[str] | None = None,
 ) -> bool:
     row = _candidate_metadata_row(candidate)
     if not row:
@@ -765,8 +693,6 @@ def _candidate_matches_heading(
         # "Field Trip" the app.
         if not required_tokens <= candidate_tokens:
             return False
-    if required_any_tokens and not (candidate_tokens & required_any_tokens):
-        return False
     return _matches_anchor_tokens(candidate_tokens, anchor_tokens)
 
 
@@ -802,14 +728,6 @@ def _numbered_h3_provider_tokens(heading: Dict[str, Any]) -> set[str]:
     """Translate only concrete entity words for provider-title verification."""
     tokens = _numbered_h3_entity_tokens(heading)
     return {_ENTITY_PROVIDER_TOKEN_MAP.get(token, token) for token in tokens}
-
-
-_AMBIGUOUS_APP_ENTITY_TOKENS = {"field", "trip", "party", "with", "local", "meetup"}
-
-
-def _is_application_list(post_context: Dict[str, Any]) -> bool:
-    tokens = _token_set_from_text(post_context.get("title", ""), post_context.get("slug", ""))
-    return bool(tokens & {"uygulama", "uygulamasi", "uygulamalari", "uygulamalar", "app", "apps"})
 
 
 def _heading_specific_selection(
@@ -863,11 +781,10 @@ def _heading_specific_selection(
     files: list[str] = []
     assignments: dict[str, Dict[str, Any]] = {}
     post_location = _turkify_to_english_query(_extract_location(post_context))
-    application_list = _is_application_list(post_context)
-    # Ten is the typical size of a named app list. Probe its concrete H3
-    # subjects before accepting a partial batch, but never broaden into a
-    # generic travel-image fallback.
-    record_limit = max(limit * 2, 10) if application_list else limit
+    # A numbered list has more concrete subjects than the requested count, and
+    # some of them will not match. Probe further down the list before accepting
+    # a partial batch, but never broaden into a generic fallback image.
+    record_limit = max(limit * 2, 10) if numbered_h3s else limit
     records: list[dict[str, Any]] = []
     for heading in available_headings:
         if len(records) >= record_limit:
@@ -884,11 +801,6 @@ def _heading_specific_selection(
         semantic_anchor = _specific_anchor_text(semantic_query)
         entity_tokens = _numbered_h3_entity_tokens(heading)
         provider_entity_tokens = _numbered_h3_provider_tokens(heading)
-        app_context_tokens = (
-            {"app", "mobile", "smartphone", "phone", "tablet"}
-            if application_list and entity_tokens and entity_tokens <= _AMBIGUOUS_APP_ENTITY_TOKENS
-            else set()
-        )
         candidates = search_semantic_assets(
             location_query=semantic_query,
             count=max(limit * 3, 10),
@@ -903,7 +815,6 @@ def _heading_specific_selection(
                 post_context=post_context,
                 anchor_text=semantic_anchor,
                 required_tokens=entity_tokens or None,
-                required_any_tokens=app_context_tokens or None,
             ):
                 chosen = candidate
                 break
@@ -911,34 +822,19 @@ def _heading_specific_selection(
         external_spec = None
         if not chosen and allow_external:
             if entity_tokens:
-                # Do not contaminate a named app/location query with article
-                # prose such as "kendinizi yerli gibi".
+                # Do not contaminate a named entity query with article prose
+                # such as "kendinizi yerli gibi".
                 entity_text = _numbered_h3_entity_text(heading) or heading_text
-                search_query = (
-                    entity_text
-                    if application_list
-                    else _heading_to_search_query(entity_text, post_location=post_location)
-                )
-                if app_context_tokens:
-                    search_query = f"{search_query} mobile app"
+                search_query = _heading_to_search_query(entity_text, post_location=post_location)
                 anchor_tokens = provider_entity_tokens
             else:
-                search_query = _thematic_heading_query(post_context, heading_text)
-                anchor_tokens = None
-            if search_query and not entity_tokens:
-                # A broad thematic article has no named entity to force into
-                # a provider title.  The concrete theme query itself is the
-                # contract; requiring incidental Turkish prose tokens would
-                # reject every otherwise relevant result.
-                anchor_tokens = None
-            elif not search_query:
                 search_query = _heading_to_search_query(heading_text, post_location=post_location)
                 anchor_tokens = _context_anchor_tokens(
                     post_context,
                     heading_text=heading_text,
                     anchor_text=semantic_anchor,
                 )
-            external_spec = (search_query, anchor_tokens, app_context_tokens)
+            external_spec = (search_query, anchor_tokens)
 
         heading_contract = dict(heading)
         if entity_tokens:
@@ -965,17 +861,17 @@ def _heading_specific_selection(
         if record["chosen"] is None and record["external_spec"]
     ]
 
-    def fetch_external(spec: tuple[str, set[str] | None, set[str]]) -> str | None:
-        query, strict_tokens, required_any_tokens = spec
-        kwargs: dict[str, Any] = {
-            "query": query,
-            "count": 1,
-            "plan_only": plan_only,
-            "strict_tokens": strict_tokens,
-        }
-        if required_any_tokens:
-            kwargs["required_any_tokens"] = required_any_tokens
-        return next(iter(_deposit_search_download(**kwargs)), None)
+    def fetch_external(spec: tuple[str, set[str] | None]) -> str | None:
+        query, strict_tokens = spec
+        return next(
+            iter(_deposit_search_download(
+                query=query,
+                count=1,
+                plan_only=plan_only,
+                strict_tokens=strict_tokens,
+            )),
+            None,
+        )
 
     if pending and plan_only:
         with ThreadPoolExecutor(max_workers=min(4, len(pending))) as pool:
@@ -1050,15 +946,6 @@ def _heading_to_search_query(heading_text: str, post_location: str = "") -> str:
         s = s.replace("ı", "i").replace("I", "I")  # dotless-i doesn't decompose via NFKD
         return unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode().lower()
 
-    # Island name overrides (TR name → EN search term)
-    ISLAND_MAP = {
-        "sakiz": "Chios", "rodos": "Rhodes", "midilli": "Lesbos",
-        "istankoyu": "Kos", "istankoy": "Kos", "kos": "Kos",
-        "samos": "Samos", "sisam": "Samos",
-        "imroz": "Gokceada", "bozcaada": "Tenedos",
-        "naksos": "Naxos", "santorini": "Santorini", "mikonos": "Mykonos",
-    }
-
     # Normalize curly/smart quotes to ASCII apostrophe
     heading_text = heading_text.replace("‘", "'").replace("’", "'").replace("‚", "'")
     # Strip leading number patterns: "3. ", "10- ", "1) "
@@ -1076,34 +963,6 @@ def _heading_to_search_query(heading_text: str, post_location: str = "") -> str:
     text = re.sub(r"[\U00010000-\U0010ffff]", "", text)
     text = re.sub(r"\s*\([^)]*\)", "", text)
     text = text.strip()
-
-    # Provider search works best with internationally indexed landmark names.
-    # For compound editorial headings choose one concrete landmark instead of
-    # concatenating districts into a query that cannot match a provider title.
-    normalized_text = _norm(text)
-    landmark_queries = (
-        ("sultanahmet meydani", "Sultanahmet Square Istanbul"),
-        ("sultanahmet camii", "Blue Mosque Istanbul"),
-        ("topkapi sarayi", "Topkapi Palace Istanbul"),
-        ("kapalicarsi", "Grand Bazaar Istanbul"),
-        ("misir carsisi", "Egyptian Bazaar Istanbul"),
-        ("besiktas", "Besiktas Bosphorus Istanbul"),
-    )
-    for landmark, provider_query in landmark_queries:
-        if landmark in normalized_text:
-            return provider_query
-
-    # Apply island name map (before word-level processing).
-    # The match must end on a word boundary: a bare prefix test sent "Kosova"
-    # to the Greek island Kos, silently relocating the destination the way the
-    # old short-query Turkey fallback did to Ohrid.
-    island_resolved = False
-    normalized_for_island = _norm(text)
-    for tr_island, en_island in ISLAND_MAP.items():
-        if re.match(rf"{re.escape(tr_island)}\b", normalized_for_island):
-            text = en_island
-            island_resolved = True
-            break
 
     # Multi-word phrase replacements (must run before word-level)
     PHRASES = [
@@ -1146,24 +1005,12 @@ def _heading_to_search_query(heading_text: str, post_location: str = "") -> str:
 
     query = " ".join(result).strip()
 
-    # When island map resolved the query, use Greece as the country hint.
-    # Otherwise keep the old Turkey fallback for general Turkish posts.
-    post_location_norm = _norm(post_location)
-    post_is_greek = any(token in post_location_norm for token in ("yunan", "greece", "greek"))
-    if island_resolved:
-        if "greece" not in query.lower():
-            query = f"{query} Greece"
-    elif not island_resolved and query.lower().startswith("harbor") and post_is_greek:
-        query = "Greek ferry port"
-    elif post_location and _norm(post_location) not in _norm(query):
+    # The post itself is the only source of geography. A hardcoded country
+    # guess used to relocate every destination it did not know about — Ohrid
+    # into Turkey, Kosovo into Greece — and each fix only added another
+    # special case.
+    if post_location and _norm(post_location) not in _norm(query):
         query = f"{query} {post_location}"
-
-    # Ohrid is in North Macedonia. The former short-query Turkey fallback
-    # silently moved this exact destination into the wrong country.
-    if "ohrid" in _norm(query) and "macedonia" not in query.casefold():
-        query += " North Macedonia"
-    elif "Turkey" not in query and "turkey" not in query.lower() and "Greece" not in query and "greece" not in query.lower():
-        query += " Greece" if (island_resolved or post_is_greek) else (" Turkey" if len(query.split()) < 4 else "")
 
     # Final pass: catch any remaining Turkish words via the slug translator
     query = _turkify_to_english_query(query)
@@ -1171,9 +1018,14 @@ def _heading_to_search_query(heading_text: str, post_location: str = "") -> str:
 
 
 def _heading_to_semantic_query(heading_text: str, post_location: str = "") -> str:
-    """Convert a heading into a compact local semantic-search query."""
+    """Convert a heading into a compact local semantic-search query.
+
+    The local index is Turkish, so the leading English geography word is
+    translated back. A country name no longer has to be filtered out here:
+    nothing appends one any more.
+    """
     query = _heading_to_search_query(heading_text, post_location=post_location)
-    tokens = [token for token in re.split(r"\s+", query) if token and token.lower() != "turkey"]
+    tokens = [token for token in re.split(r"\s+", query) if token]
     if not tokens:
         return ""
     first = tokens[0].strip()
@@ -1228,9 +1080,12 @@ def _semantic_heading_files(
 
 
 def _turkify_to_english_query(location_query: str) -> str:
-    """Convert a Turkish slug/title into an English DepositPhotos search query.
+    """Translate the generic Turkish words in a slug/title into English.
 
-    Generated by Qwen2.5-Coder-14B, reviewed and extended for diacritics + proper nouns.
+    Only common nouns are translated (``plaj`` → ``beach``). Place names pass
+    through untouched: a proper-noun table can only ever cover the destinations
+    someone remembered to add, and the country fallback that accompanied it
+    silently moved unknown places into the wrong country.
     """
     import unicodedata
 
@@ -1271,42 +1126,16 @@ def _turkify_to_english_query(location_query: str) -> str:
         "magara": "cave", "magarasi": "cave",
         "ornek": "",
     }
-    TR_PROPER = {
-        "kapadokya": "Cappadocia", "istanbul": "Istanbul", "ankara": "Ankara",
-        "izmir": "Izmir", "antalya": "Antalya", "bodrum": "Bodrum",
-        "oludeniz": "Oludeniz", "goreme": "Goreme", "efes": "Ephesus",
-        "pamukkale": "Pamukkale", "trabzon": "Trabzon", "sinop": "Sinop",
-        "mugla": "Mugla", "fethiye": "Fethiye", "kas": "Kas",
-        "koycegiz": "Koycegiz", "dalyan": "Dalyan", "marmaris": "Marmaris",
-        "aydincik": "Aydincik", "kelenderis": "Kelenderis",
-        "kaunos": "Kaunos", "toparlar": "Toparlar", "sigla": "Sigla",
-        "iztuzu": "Iztuzu", "sultaniye": "Sultaniye",
-        "sandras": "Sandras", "gokcegova": "Gokcegova",
-        "cappadocia": "Cappadocia",
-    }
-
-    greek_hint = any(token in _norm(location_query) for token in ("yunan", "greece", "greek"))
-
-    words = location_query.split()
-    has_geo_hint = greek_hint or len(words) == 1 or any(
-        _norm(word) in TR_PROPER or _norm(word) in TR_GEO
-        for word in words
-    )
     result = []
-    for w in words:
+    for w in location_query.split():
         norm = _norm(w)
         if norm in TR_STOP:
             continue
-        if norm in TR_PROPER:
-            result.append(TR_PROPER[norm])
-        elif norm in TR_GEO and TR_GEO[norm]:
+        if norm in TR_GEO and TR_GEO[norm]:
             result.append(TR_GEO[norm])
         else:
+            # A place name keeps its own spelling; the provider indexes it too.
             result.append(w)
-
-    default_country = "Greece" if greek_hint else "Turkey"
-    if has_geo_hint and len(result) < 4 and default_country not in result:
-        result.append(default_country)
 
     return " ".join(result[:4])
 
@@ -1357,7 +1186,6 @@ def _deposit_search_download(
     plan_only: bool = False,
     *,
     strict_tokens: set[str] | None = None,
-    required_any_tokens: set[str] | None = None,
 ) -> list[str]:
     """Search + download exact DepositPhotos candidates.
 
@@ -1388,12 +1216,6 @@ def _deposit_search_download(
                 and _literal_matching_anchor_count(_deposit_result_tokens(r), query_tokens) >= required_query_matches
             ]
             results = filtered
-        if required_any_tokens:
-            results = [
-                result
-                for result in results
-                if _deposit_result_tokens(result) & required_any_tokens
-            ]
         if len(results) < count:
             return []
 
