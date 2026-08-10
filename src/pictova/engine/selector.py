@@ -2,12 +2,70 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from hashlib import sha256
 from typing import Any, Dict, List
 
 import json
+import os
+from pathlib import Path
+import re
+import sqlite3
+import tempfile
+import time
 from src.core.processor import get_vil_images
+from src.core.media_quality import BAD_METADATA_TOKENS, GENERIC_ANCHORS, normalize_text
 from src.main import load_vil_images_from_index_for_post, search_semantic_assets
 from src.pictova.config import get_visual_memory_db_path
+
+
+# The exact free discovery result is reusable by the paid phase. Keep it in
+# memory for one process and briefly on disk so a separate `plan` then `attach`
+# does not consume the personal hotspot on the same provider search twice.
+# The cached payload is the raw provider response, which depends only on the
+# query and the fetch size. Keying it by the caller's token filters too made
+# the same search run again for every distinct token set — the exact repeat
+# this cache exists to prevent.
+_DepositCacheKey = tuple[str, int]
+_DEPOSIT_DISCOVERY_CACHE: dict[_DepositCacheKey, list[dict[str, Any]]] = {}
+_DEPOSIT_DISCOVERY_CACHE_DIR = Path(__file__).resolve().parents[3] / "data" / "deposit_cache" / "discovery"
+_DEPOSIT_DISCOVERY_CACHE_TTL_SECONDS = 60 * 60
+
+
+def _deposit_discovery_cache_path(cache_key: _DepositCacheKey) -> Path:
+    payload = json.dumps(list(cache_key), ensure_ascii=False, separators=(",", ":"))
+    return _DEPOSIT_DISCOVERY_CACHE_DIR / f"{sha256(payload.encode()).hexdigest()}.json"
+
+
+def _load_deposit_discovery(cache_key: _DepositCacheKey) -> list[dict[str, Any]] | None:
+    path = _deposit_discovery_cache_path(cache_key)
+    try:
+        if time.time() - path.stat().st_mtime > _DEPOSIT_DISCOVERY_CACHE_TTL_SECONDS:
+            return None
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return None
+    if not isinstance(data, list) or not all(isinstance(item, dict) for item in data):
+        return None
+    return data
+
+
+def _save_deposit_discovery(cache_key: _DepositCacheKey, results: list[dict[str, Any]]) -> None:
+    """Atomically retain a short-lived free search result for plan replay."""
+    cache_dir = _DEPOSIT_DISCOVERY_CACHE_DIR
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    path = _deposit_discovery_cache_path(cache_key)
+    fd, temporary = tempfile.mkstemp(prefix=f".{path.stem}.", suffix=".tmp", dir=cache_dir)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(results, handle, ensure_ascii=False, separators=(",", ":"))
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
+    finally:
+        try:
+            Path(temporary).unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def resolve_source_images(
@@ -24,19 +82,63 @@ def resolve_source_images(
     _count = count or 5
 
     if source == "auto":
-        # 1. Local photos (semantic search)
-        files = search_semantic_assets(
-            location_query=location_query or _extract_location(post_context),
-            count=_count,
-            content_filter=content_filter,
+        base_query = location_query or _primary_post_query(post_context) or _extract_location(post_context)
+        selection_warnings: list[str] = []
+        files, heading_assignments = _heading_specific_selection(
             post_context=post_context,
+            content_filter=content_filter,
+            limit=_count,
+            allow_external=True,
+            plan_only=plan_only,
+            diagnostics=selection_warnings,
         )
+        if len(files) >= _count:
+            return {
+                "source": "auto",
+                "query": base_query,
+                "content_filter": content_filter,
+                "files": files[:_count],
+                "heading_assignments": {file: heading_assignments[file] for file in files[:_count] if file in heading_assignments},
+                "warnings": selection_warnings,
+            }
+        # Headings are the hard semantic contract.  A partial exact result is
+        # safer than filling the remaining slots with a generic local image.
+        if post_context.get("available_headings"):
+            return {
+                "source": "auto",
+                "query": base_query,
+                "content_filter": content_filter,
+                "files": files,
+                "heading_assignments": heading_assignments,
+                "warnings": selection_warnings,
+            }
+
+        # 1. Local photos (semantic search)
+        files = _semantic_heading_files(
+            post_context=post_context,
+            content_filter=content_filter,
+            limit=_count,
+        )
+        if len(files) < _count:
+            generic_files = search_semantic_assets(
+                location_query=base_query,
+                count=_count,
+                content_filter=content_filter,
+                post_context=post_context,
+            )
+            generic_files = _filter_relevant_candidates(
+                generic_files,
+                post_context=post_context,
+                heading_text="",
+                anchor_text=base_query,
+            )
+            files = list(dict.fromkeys(files + generic_files))[:_count]
         if len(files) >= _count:
             return {"source": "semantic", "query": location_query or "", "content_filter": content_filter, "files": files}
 
         # 2. iCloud candidate photos — first destination index, then FTS fallback
         need = _count - len(files)
-        loc_q = location_query or _extract_location(post_context)
+        loc_q = base_query
         icloud_uuids = _destination_index_uuids(loc_q, need)
         if not icloud_uuids:
             icloud = search_semantic_assets(
@@ -48,14 +150,20 @@ def resolve_source_images(
             )
             icloud_uuids = [f for f in icloud if f.startswith("icloud://")]
         if icloud_uuids:
+            icloud_uuids = _filter_relevant_candidates(
+                icloud_uuids,
+                post_context=post_context,
+                heading_text="",
+                anchor_text=base_query,
+            )
             files = files + icloud_uuids[:need]
 
         # 3. External sources — heading-aware when headings exist, batch otherwise
         if len(files) < _count:
             need = _count - len(files)
-            base_q = location_query or _extract_location(post_context)
+            base_q = base_query
             available_headings = post_context.get("available_headings") or []
-            post_location = _extract_location(post_context)
+            post_location = _turkify_to_english_query(_extract_location(post_context))
 
             if available_headings and not plan_only:
                 # Per-heading selection: 1 photo per heading, specific query per slot
@@ -67,51 +175,77 @@ def resolve_source_images(
 
                 external = []
                 for h in target_headings:
-                    h_q = _heading_to_search_query(h.get("text", ""), post_location=post_location)
-                    # Try DepositPhotos first (1 per heading)
-                    dep = _deposit_search_download(query=h_q, count=1, plan_only=False)
+                    heading_text = str(h.get("text", "") or "").strip()
+                    h_q = _heading_to_search_query(heading_text, post_location=post_location)
+                    anchor_tokens = _specific_tokens(_token_set_from_text(h_q))
+                    dep = _safe_deposit_search(
+                        diagnostics=selection_warnings,
+                        context=heading_text or h_q,
+                        query=h_q,
+                        count=1,
+                        plan_only=False,
+                        strict_tokens=anchor_tokens,
+                    )
                     if dep:
                         external.append(dep[0])
-                        continue
-                    # Fallback: Unsplash
-                    uns = _unsplash_search_download(query=h_q, count=1)
-                    if uns:
-                        external.append(uns[0])
-                    else:
-                        # Last resort: base query from DP
-                        fallback = _deposit_search_download(query=base_q + " Turkey", count=1, plan_only=False)
-                        external.extend(fallback)
 
                 files = files + external[:need]
             else:
                 # No headings (or plan_only preview) — batch mode
-                uns_target = max(1, int(need * 0.25)) if need >= 4 else (1 if need > 1 else 0)
-                dep_target = need - uns_target
-
                 dep_q = _enrich_query_for_theme(base_q, post_context, content_filter, source="deposit")
-                uns_q = _enrich_query_for_theme(base_q, post_context, content_filter, source="unsplash")
+                anchor_tokens = _primary_post_tokens(post_context)
+                dep_files = _safe_deposit_search(
+                    diagnostics=selection_warnings,
+                    context=dep_q,
+                    query=dep_q,
+                    count=need,
+                    plan_only=plan_only,
+                    strict_tokens=anchor_tokens,
+                )
+                files = files + dep_files
 
-                dep_files = _deposit_search_download(query=dep_q, count=dep_target, plan_only=plan_only) if dep_target > 0 else []
-                missing_dep = dep_target - len(dep_files)
-                if missing_dep > 0:
-                    uns_target += missing_dep
-                uns_files = _unsplash_search_download(query=uns_q, count=uns_target) if uns_target > 0 else []
-
-                merged = []
-                for d, u in zip(dep_files, uns_files):
-                    merged += [d, u]
-                merged += dep_files[len(uns_files):] + uns_files[len(dep_files):]
-                files = files + merged
-
-        return {"source": "auto", "query": location_query or "", "content_filter": content_filter, "files": files}
+        return {
+            "source": "auto",
+            "query": base_query,
+            "content_filter": content_filter,
+            "files": files,
+            "warnings": selection_warnings,
+        }
 
     if source == "semantic":
-        files = search_semantic_assets(
-            location_query=location_query or "",
-            count=_count,
-            content_filter=content_filter,
+        files, heading_assignments = _heading_specific_selection(
             post_context=post_context,
+            content_filter=content_filter,
+            limit=_count,
+            allow_external=False,
         )
+        if files:
+            return {
+                "source": "semantic",
+                "query": location_query or "",
+                "content_filter": content_filter,
+                "files": files[:_count],
+                "heading_assignments": {file: heading_assignments[file] for file in files[:_count] if file in heading_assignments},
+            }
+        files = _semantic_heading_files(
+            post_context=post_context,
+            content_filter=content_filter,
+            limit=_count,
+        )
+        if len(files) < _count:
+            generic_files = search_semantic_assets(
+                location_query=location_query or "",
+                count=_count,
+                content_filter=content_filter,
+                post_context=post_context,
+            )
+            generic_files = _filter_relevant_candidates(
+                generic_files,
+                post_context=post_context,
+                heading_text="",
+                anchor_text=location_query or "",
+            )
+            files = list(dict.fromkeys(files + generic_files))[:_count]
         return {
             "source": "semantic",
             "query": location_query or "",
@@ -135,10 +269,134 @@ def resolve_source_images(
         }
 
     if source == "deposit":
-        loc_q = location_query or query or _extract_location(post_context)
-        enriched_q = _enrich_query_for_theme(loc_q, post_context, content_filter)
-        files = _deposit_search_download(query=enriched_q, count=_count, plan_only=plan_only)
-        return {"source": "deposit", "query": enriched_q, "content_filter": None, "files": files}
+        deposit_warnings: list[str] = []
+        numbered_headings = [
+            heading for heading in (post_context.get("available_headings") or [])
+            if re.match(r"^\s*\d{1,3}\s*[.\-):]", str(heading.get("text") or ""))
+        ]
+        if numbered_headings and not query and not location_query:
+            previews: list[str] = []
+            used_queries: list[str] = []
+            query_specs: list[tuple[str, set[str]]] = []
+            for heading in numbered_headings:
+                heading_query = _heading_to_search_query(str(heading.get("text") or ""))
+                strict_tokens = _specific_tokens(_token_set_from_text(heading_query))
+                if not strict_tokens:
+                    continue
+                matched = _safe_deposit_search(
+                    diagnostics=deposit_warnings,
+                    context=heading_query,
+                    query=heading_query,
+                    count=1,
+                    plan_only=True,
+                    strict_tokens=strict_tokens,
+                )
+                if matched and matched[0] not in previews:
+                    previews.append(matched[0])
+                    used_queries.append(heading_query)
+                    query_specs.append((heading_query, strict_tokens))
+                if len(previews) == _count:
+                    break
+            if len(previews) != _count:
+                previews = []
+                used_queries = []
+                query_specs = []
+            if plan_only or not query_specs:
+                files = previews
+            else:
+                files = []
+                for heading_query, strict_tokens in query_specs:
+                    matched = _safe_deposit_search(
+                        diagnostics=deposit_warnings,
+                        context=heading_query,
+                        query=heading_query,
+                        count=1,
+                        plan_only=False,
+                        strict_tokens=strict_tokens,
+                    )
+                    if matched and matched[0] not in files:
+                        files.append(matched[0])
+                if len(files) != _count:
+                    files = []
+                    used_queries = []
+            return {
+                "source": "deposit",
+                "query": " | ".join(used_queries),
+                "content_filter": None,
+                "files": files,
+                "warnings": deposit_warnings,
+            }
+
+        preferred_q = location_query or query or _primary_post_query(post_context)
+        # A supplied query may lead a general thematic article, but never
+        # override a named destination/product already present in the post.
+        primary_tokens = _primary_post_tokens(post_context)
+        strict_tokens = (
+            primary_tokens
+            if _has_hard_post_anchor(primary_tokens)
+            else _specific_tokens(_token_set_from_text(preferred_q))
+        )
+        if not strict_tokens or not preferred_q:
+            return {"source": "deposit", "query": "", "content_filter": None, "files": [], "warnings": deposit_warnings}
+        enriched_q = _enrich_query_for_theme(preferred_q, post_context, content_filter)
+        files = _safe_deposit_search(
+            diagnostics=deposit_warnings,
+            context=enriched_q,
+            query=enriched_q,
+            count=_count,
+            plan_only=plan_only,
+            strict_tokens=strict_tokens,
+        )
+        return {
+            "source": "deposit",
+            "query": enriched_q if len(files) == _count else "",
+            "content_filter": None,
+            "files": files if len(files) == _count else [],
+            "warnings": deposit_warnings,
+        }
+
+    if source == "wikimedia":
+        from src.pictova.providers import wikimedia as wikimedia_provider
+
+        wikimedia_warnings: list[str] = []
+        preferred_q = location_query or query or _primary_post_query(post_context)
+        anchor_tokens = _specific_tokens(_token_set_from_text(preferred_q))
+        if not preferred_q or not anchor_tokens:
+            return {"source": "wikimedia", "query": "", "content_filter": None, "files": [], "warnings": wikimedia_warnings}
+        # A provider outage degrades this selection the same way it degrades
+        # DepositPhotos: an empty exact result, never an aborted command.
+        try:
+            results = wikimedia_provider.search(preferred_q, count=max(_count * 4, 20))
+            exact_results = [
+                result for result in results
+                if _matching_anchor_count(
+                    _token_set_from_text(result.get("title", "")), anchor_tokens,
+                ) >= min(2, len(anchor_tokens))
+            ]
+            if len(exact_results) < _count:
+                return {"source": "wikimedia", "query": "", "content_filter": None, "files": [], "warnings": wikimedia_warnings}
+            if plan_only:
+                files = [result["url"] for result in exact_results[:_count]]
+            else:
+                files = [wikimedia_provider.download(result) for result in exact_results[:_count]]
+        except Exception as exc:
+            return {
+                "source": "wikimedia",
+                "query": "",
+                "content_filter": None,
+                "files": [],
+                "warnings": [
+                    f"Wikimedia exact retrieval failed for {preferred_q!r} "
+                    f"({type(exc).__name__}); no generic fallback was used"
+                ],
+            }
+        return {
+            "source": "wikimedia",
+            "query": preferred_q,
+            "content_filter": None,
+            "files": files,
+            "warnings": wikimedia_warnings,
+        }
 
     if source == "local":
         # Direct file paths list — split query by "," or "\n" delimiter
@@ -172,6 +430,613 @@ _THEME_BEACH_KEYWORDS = {
     "plaj", "koy", "deniz", "sahil", "beach", "bay", "coast",
 }
 
+_NOISY_METADATA_TOKENS = {
+    "advert", "advertisement", "banner", "brochure", "document", "flyer",
+    "logo", "menu", "poster", "promo", "promotional", "reklam", "screenshot",
+    "sign", "street sign", "food", "dish", "restaurant", "interior",
+    "presentation", "tabela", "tableware", "dish", "chair", "room",
+}
+_GENERIC_SEMANTIC_ANCHORS = {
+    "waterfall", "selale", "şelale", "beach", "plaj", "bay", "koy",
+    "island", "ada", "castle", "kale", "coast", "sahil", "harbor",
+    "liman", "museum", "muze", "nature", "landscape", "manzara",
+}
+
+_NON_SPECIFIC_MATCH_TOKENS = GENERIC_ANCHORS | _GENERIC_SEMANTIC_ANCHORS | {
+    "beautiful", "guide", "how", "landscapes", "mountain", "mountains",
+    "national", "park", "parks", "panorama", "panoramic", "place", "places",
+    "rehber", "rehberi", "selaleleri", "waterfalls", "scenic", "sunset",
+    "turkey", "turkiye", "turkish", "greece", "greek", "where", "visit",
+    "bilmeniz", "gerekenler", "gitmeden", "giris", "ucreti", "nasil", "nerede",
+    "adasi", "golu", "kalesi", "koyu", "magarasi", "milli", "ormani", "parki",
+    "plaji", "sahili", "vadisi", "yaylasi", "gezilecek", "yerler", "ok",
+}
+_THEMATIC_POST_TOKENS = {
+    "yalniz", "seyahat", "gezi", "rehber", "rehberi", "tatil", "rota",
+    "rotasi", "ipuclari", "deneyim", "deneyimler", "uygulama", "uygulamasi",
+    "app", "apps",
+}
+_TITLE_VERB_TOKENS = {
+    "etmek", "olmak", "yapmak", "hissetmek", "bilmek", "vermek", "almak",
+    "gercek", "gercekten", "kendi", "daha", "gibi", "bir",
+}
+
+_TURKISH_ASCII = str.maketrans({"ç": "c", "ğ": "g", "ı": "i", "ö": "o", "ş": "s", "ü": "u"})
+
+_MATCH_TOKEN_EQUIVALENTS = {
+    "bagaj": {"baggage", "luggage"},
+    "bagaji": {"baggage", "luggage"},
+    "boyut": {"size", "sizes", "dimensions"},
+    "boyutlari": {"size", "sizes", "dimensions"},
+    "buyuk": {"large"},
+    "calisanlari": {"workers"},
+    "dijital": {"digital"},
+    "fiyatlari": {"prices"},
+    "gocebe": {"nomad"},
+    "guvenlik": {"security"},
+    "kabin": {"cabin", "carry"},
+    "kapisinda": {"checkpoint"},
+    "kirilan": {"broken", "damaged"},
+    "kisitlamalari": {"restrictions"},
+    "kontrolu": {"control"},
+    "malzeme": {"material"},
+    "markalari": {"brands"},
+    "maddeler": {"items"},
+    "olculer": {"sizes", "dimensions"},
+    "olculeri": {"sizes", "dimensions"},
+    "orta": {"medium"},
+    "pasaport": {"passport"},
+    "polis": {"police"},
+    "sinir": {"border"},
+    "sivi": {"liquid", "liquids"},
+    "samuil": {"samuel", "samuels"},
+    "tazminat": {"claim", "compensation"},
+    "theater": {"theatre"},
+    "ucakta": {"airline", "airport", "flight"},
+    "uzaktan": {"remote"},
+    "valiz": {"suitcase", "luggage"},
+    "vizesi": {"visa"},
+    "yasakli": {"forbidden", "prohibited"},
+}
+
+
+def _canonical_token(value: object) -> str:
+    # Lowercasing U+0130 can leave a combining dot that normalize_text drops
+    # together with the leading letter ("İstanbul" -> "stanbul").
+    text = str(value or "").replace("İ", "I")
+    return normalize_text(text).translate(_TURKISH_ASCII)
+
+
+def _token_set_from_text(*values: object) -> set[str]:
+    tokens: set[str] = set()
+    for value in values:
+        text = _canonical_token(value)
+        for token in re.findall(r"[a-z0-9çğıöşü]+", text):
+            if len(token) < 3:
+                continue
+            if token in BAD_METADATA_TOKENS:
+                continue
+            tokens.add(token)
+    return tokens
+
+
+def _specific_tokens(tokens: set[str]) -> set[str]:
+    return {token for token in tokens if token not in _NON_SPECIFIC_MATCH_TOKENS}
+
+
+def _primary_post_tokens(post_context: Dict[str, Any]) -> set[str]:
+    """Return only the post title/slug entity anchors; body links cannot widen them."""
+    return _specific_tokens(_token_set_from_text(
+        post_context.get("title", ""),
+        post_context.get("slug", ""),
+    ))
+
+
+def _has_hard_post_anchor(tokens: set[str]) -> bool:
+    """A named destination or product must not be overridden by a loose query."""
+    return any(token not in _THEMATIC_POST_TOKENS | _TITLE_VERB_TOKENS for token in tokens)
+
+
+def _primary_post_query(post_context: Dict[str, Any]) -> str:
+    primary_tokens = _primary_post_tokens(post_context)
+    if not _has_hard_post_anchor(primary_tokens):
+        thematic_tokens = _token_set_from_text(
+            post_context.get("title", ""),
+            post_context.get("slug", ""),
+        ) & _THEMATIC_POST_TOKENS
+        for value in (post_context.get("slug", ""), post_context.get("title", "")):
+            ordered = [
+                token for token in re.findall(r"[a-z0-9]+", _canonical_token(value))
+                if token in thematic_tokens
+            ]
+            if ordered:
+                return " ".join(dict.fromkeys(ordered))
+    for value in (post_context.get("slug", ""), post_context.get("title", "")):
+        ordered = [
+            token for token in re.findall(r"[a-z0-9]+", _canonical_token(value))
+            if token in primary_tokens
+        ]
+        if ordered:
+            return " ".join(dict.fromkeys(ordered))
+    return ""
+
+
+def _context_anchor_tokens(
+    post_context: Dict[str, Any],
+    *,
+    heading_text: str = "",
+    anchor_text: str = "",
+) -> set[str]:
+    return _specific_tokens(_token_set_from_text(
+        heading_text,
+        anchor_text,
+        post_context.get("title", ""),
+        post_context.get("slug", ""),
+        _extract_location(post_context),
+    ))
+
+
+def _thematic_heading_query(post_context: Dict[str, Any], heading_text: str) -> str:
+    """Create a concrete provider query for broad, non-place travel articles."""
+    post_tokens = _token_set_from_text(post_context.get("title", ""), post_context.get("slug", ""))
+    heading = _canonical_token(heading_text)
+    if {"yalniz", "seyahat"} <= post_tokens:
+        if any(token in heading for token in ("guven", "risk", "gece", "esya", "icgudu")):
+            return "solo traveler travel safety"
+        if any(token in heading for token in ("plan", "karar", "sorumluluk")):
+            return "solo traveler trip planning"
+        if any(token in heading for token in ("insan", "tanis", "sosyal")):
+            return "solo traveler meeting locals"
+        return "solo traveler city travel"
+    return ""
+
+
+def _specific_anchor_text(value: str) -> str:
+    token = normalize_text(value)
+    if not token or token in _GENERIC_SEMANTIC_ANCHORS:
+        return ""
+    return value
+
+
+def _candidate_tokens_from_row(row: Dict[str, Any]) -> set[str]:
+    blob = " ".join(
+        str(row.get(field) or "")
+        for field in (
+            "title",
+            "location",
+            "city",
+            "state_province",
+            "country",
+            "scene",
+            "activity",
+            "summary",
+            "description",
+            "ai_keywords_json",
+            "apple_labels_json",
+        )
+    ).lower()
+    blob = re.sub(r"\s+", " ", blob)
+    if any(token in blob for token in _NOISY_METADATA_TOKENS):
+        return set()
+    return _token_set_from_text(blob)
+
+
+def _deposit_result_tokens(result: Dict[str, Any]) -> set[str]:
+    """Return title tokens only; provider tags may rank but cannot approve an asset."""
+    return _specific_tokens(_token_set_from_text(result.get("title", "")))
+
+
+def _equivalent_match_tokens(tokens: set[str]) -> set[str]:
+    expanded = set(tokens)
+    for token in tokens:
+        expanded.update(_MATCH_TOKEN_EQUIVALENTS.get(token, set()))
+        for source, equivalents in _MATCH_TOKEN_EQUIVALENTS.items():
+            if token in equivalents:
+                expanded.add(source)
+                expanded.update(equivalents)
+    return expanded
+
+
+def _matching_anchor_count(candidate_tokens: set[str], anchor_tokens: set[str]) -> int:
+    candidate_tokens = _specific_tokens(candidate_tokens)
+    anchor_tokens = _specific_tokens(anchor_tokens)
+    if not candidate_tokens or not anchor_tokens:
+        return 0
+    expanded_candidates = _equivalent_match_tokens(candidate_tokens)
+    matched_anchors = set()
+    for candidate in expanded_candidates:
+        for anchor in anchor_tokens:
+            expanded_anchors = _equivalent_match_tokens({anchor})
+            if candidate in expanded_anchors:
+                matched_anchors.add(anchor)
+                continue
+            if candidate == anchor:
+                matched_anchors.add(anchor)
+                continue
+            shorter, longer = sorted((candidate, anchor), key=len)
+            if len(shorter) >= 6 and len(longer) - len(shorter) <= 3 and longer.startswith(shorter):
+                matched_anchors.add(anchor)
+    return len(matched_anchors)
+
+
+def _literal_matching_anchor_count(candidate_tokens: set[str], anchor_tokens: set[str]) -> int:
+    candidate_tokens = _specific_tokens(candidate_tokens)
+    anchor_tokens = _specific_tokens(anchor_tokens)
+    matched_anchors = set()
+    for candidate in candidate_tokens:
+        for anchor in anchor_tokens:
+            if candidate == anchor:
+                matched_anchors.add(anchor)
+                continue
+            shorter, longer = sorted((candidate, anchor), key=len)
+            if len(shorter) >= 6 and len(longer) - len(shorter) <= 3 and longer.startswith(shorter):
+                matched_anchors.add(anchor)
+    return len(matched_anchors)
+
+
+def _matches_anchor_tokens(candidate_tokens: set[str], anchor_tokens: set[str]) -> bool:
+    return _matching_anchor_count(candidate_tokens, anchor_tokens) >= 1
+
+
+def _filter_relevant_candidates(
+    candidates: list[str],
+    *,
+    post_context: Dict[str, Any],
+    heading_text: str = "",
+    anchor_text: str = "",
+) -> list[str]:
+    anchor_tokens = _context_anchor_tokens(post_context, heading_text=heading_text, anchor_text=anchor_text)
+    if not anchor_tokens:
+        return []
+    filtered: list[str] = []
+    for candidate in candidates:
+        if _candidate_matches_heading(
+            candidate,
+            heading_text=heading_text,
+            post_context=post_context,
+            anchor_text=anchor_text,
+        ):
+            filtered.append(candidate)
+    return list(dict.fromkeys(filtered))
+
+
+def _candidate_metadata_row(candidate: str) -> Dict[str, Any] | None:
+    db_path = get_visual_memory_db_path()
+    if not db_path.exists():
+        return None
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            if candidate.startswith("icloud://"):
+                source_id = candidate.removeprefix("icloud://")
+                row = conn.execute(
+                    """
+                    SELECT source_id, source_path, title, location, city, state_province,
+                           country, scene, activity, summary, description,
+                           ai_keywords_json, apple_labels_json
+                    FROM asset_index
+                    WHERE source_id = ?
+                    LIMIT 1
+                    """,
+                    (source_id,),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    """
+                    SELECT source_id, source_path, title, location, city, state_province,
+                           country, scene, activity, summary, description,
+                           ai_keywords_json, apple_labels_json
+                    FROM asset_index
+                    WHERE source_path = ?
+                    LIMIT 1
+                    """,
+                    (candidate,),
+                ).fetchone()
+            return dict(row) if row else None
+        finally:
+            conn.close()
+    except Exception:
+        return None
+
+
+def _candidate_matches_heading(
+    candidate: str,
+    heading_text: str,
+    post_context: Dict[str, Any] | None = None,
+    anchor_text: str = "",
+    required_tokens: set[str] | None = None,
+    required_any_tokens: set[str] | None = None,
+) -> bool:
+    row = _candidate_metadata_row(candidate)
+    if not row:
+        return False
+    anchor_tokens = _context_anchor_tokens(
+        post_context or {},
+        heading_text=heading_text,
+        anchor_text=anchor_text,
+    )
+    if not anchor_tokens:
+        return False
+    candidate_tokens = _candidate_tokens_from_row(row)
+    if required_tokens:
+        # A numbered H3 may be an app or a named location. One incidental
+        # token ("Field" in a landscape) is never enough to represent
+        # "Field Trip" the app.
+        if not required_tokens <= candidate_tokens:
+            return False
+    if required_any_tokens and not (candidate_tokens & required_any_tokens):
+        return False
+    return _matches_anchor_tokens(candidate_tokens, anchor_tokens)
+
+
+def _numbered_h3_entity_text(heading: Dict[str, Any]) -> str:
+    """Return the named entity, excluding an editorial suffix after a dash."""
+    if int(heading.get("level") or 0) < 3:
+        return ""
+    text = str(heading.get("text") or "")
+    if not re.match(r"^\s*\d{1,3}\s*[.\-):]", text):
+        return ""
+    entity_text = re.sub(r"^\s*\d{1,3}\s*[.\-):]\s*", "", text)
+    # List headings often use `Name - editorial explanation`. The explanation
+    # is prose, not part of the entity contract; requiring it made exact
+    # provider matches such as "Ohrid Lake" impossible.
+    return re.split(r"\s+(?:[-—–:])\s+", entity_text, maxsplit=1)[0].strip()
+
+
+def _numbered_h3_entity_tokens(heading: Dict[str, Any]) -> set[str]:
+    """Return the full entity contract for a numbered H3 list item."""
+    return _specific_tokens(_token_set_from_text(_numbered_h3_entity_text(heading)))
+
+
+_ENTITY_PROVIDER_TOKEN_MAP = {
+    "antik": "ancient",
+    "tiyatro": "theater",
+    "kilisesi": "church",
+    "camii": "mosque",
+    "manastiri": "monastery",
+}
+
+
+def _numbered_h3_provider_tokens(heading: Dict[str, Any]) -> set[str]:
+    """Translate only concrete entity words for provider-title verification."""
+    tokens = _numbered_h3_entity_tokens(heading)
+    return {_ENTITY_PROVIDER_TOKEN_MAP.get(token, token) for token in tokens}
+
+
+_AMBIGUOUS_APP_ENTITY_TOKENS = {"field", "trip", "party", "with", "local", "meetup"}
+
+
+def _is_application_list(post_context: Dict[str, Any]) -> bool:
+    tokens = _token_set_from_text(post_context.get("title", ""), post_context.get("slug", ""))
+    return bool(tokens & {"uygulama", "uygulamasi", "uygulamalari", "uygulamalar", "app", "apps"})
+
+
+def _heading_specific_selection(
+    *,
+    post_context: Dict[str, Any],
+    content_filter: str | None,
+    limit: int,
+    allow_external: bool,
+    plan_only: bool = False,
+    diagnostics: list[str] | None = None,
+) -> tuple[list[str], dict[str, Dict[str, Any]]]:
+    available_headings = post_context.get("available_headings") or []
+    if not available_headings:
+        return [], {}
+
+    # Existing images belong to their nearest heading. When a post already has
+    # a Pictova (or editor) image there, fill another concrete heading first
+    # rather than spending a download on the same section again.
+    occupied = {
+        (
+            re.sub(r"\s+", " ", str(item.get("text") or "")).strip().casefold(),
+            int(item.get("level") or 0),
+        )
+        for item in (post_context.get("occupied_headings") or [])
+        if str(item.get("text") or "").strip()
+    }
+    if occupied:
+        available_headings = [
+            heading for heading in available_headings
+            if (
+                re.sub(r"\s+", " ", str(heading.get("text") or "")).strip().casefold(),
+                int(heading.get("level") or 0),
+            ) not in occupied
+        ]
+    if not available_headings:
+        return [], {}
+
+    # A numbered H3 list is the content's concrete unit (places, apps,
+    # activities…). The preceding H2 is typically an introduction, not a
+    # visual subject. Selecting it wastes one provider request and can place
+    # an exact H3 image beneath unrelated prose.
+    numbered_h3s = [
+        heading
+        for heading in available_headings
+        if int(heading.get("level") or 0) >= 3
+        and re.match(r"^\s*\d{1,3}\s*[.\-):]", str(heading.get("text") or ""))
+    ]
+    if numbered_h3s:
+        available_headings = numbered_h3s
+
+    files: list[str] = []
+    assignments: dict[str, Dict[str, Any]] = {}
+    post_location = _turkify_to_english_query(_extract_location(post_context))
+    application_list = _is_application_list(post_context)
+    # Ten is the typical size of a named app list. Probe its concrete H3
+    # subjects before accepting a partial batch, but never broaden into a
+    # generic travel-image fallback.
+    record_limit = max(limit * 2, 10) if application_list else limit
+    records: list[dict[str, Any]] = []
+    for heading in available_headings:
+        if len(records) >= record_limit:
+            break
+
+        heading_text = str(heading.get("text", "") or "").strip()
+        if not heading_text:
+            continue
+        semantic_query = _heading_to_semantic_query(heading_text, post_location=post_location)
+        if not semantic_query:
+            continue
+
+        chosen = None
+        semantic_anchor = _specific_anchor_text(semantic_query)
+        entity_tokens = _numbered_h3_entity_tokens(heading)
+        provider_entity_tokens = _numbered_h3_provider_tokens(heading)
+        app_context_tokens = (
+            {"app", "mobile", "smartphone", "phone", "tablet"}
+            if application_list and entity_tokens and entity_tokens <= _AMBIGUOUS_APP_ENTITY_TOKENS
+            else set()
+        )
+        candidates = search_semantic_assets(
+            location_query=semantic_query,
+            count=max(limit * 3, 10),
+            content_filter=content_filter,
+            post_context=post_context,
+            include_icloud=True,
+        )
+        for candidate in candidates:
+            if _candidate_matches_heading(
+                candidate,
+                heading_text=heading_text,
+                post_context=post_context,
+                anchor_text=semantic_anchor,
+                required_tokens=entity_tokens or None,
+                required_any_tokens=app_context_tokens or None,
+            ):
+                chosen = candidate
+                break
+
+        external_spec = None
+        if not chosen and allow_external:
+            if entity_tokens:
+                # Do not contaminate a named app/location query with article
+                # prose such as "kendinizi yerli gibi".
+                entity_text = _numbered_h3_entity_text(heading) or heading_text
+                search_query = (
+                    entity_text
+                    if application_list
+                    else _heading_to_search_query(entity_text, post_location=post_location)
+                )
+                if app_context_tokens:
+                    search_query = f"{search_query} mobile app"
+                anchor_tokens = provider_entity_tokens
+            else:
+                search_query = _thematic_heading_query(post_context, heading_text)
+                anchor_tokens = None
+            if search_query and not entity_tokens:
+                # A broad thematic article has no named entity to force into
+                # a provider title.  The concrete theme query itself is the
+                # contract; requiring incidental Turkish prose tokens would
+                # reject every otherwise relevant result.
+                anchor_tokens = None
+            elif not search_query:
+                search_query = _heading_to_search_query(heading_text, post_location=post_location)
+                anchor_tokens = _context_anchor_tokens(
+                    post_context,
+                    heading_text=heading_text,
+                    anchor_text=semantic_anchor,
+                )
+            external_spec = (search_query, anchor_tokens, app_context_tokens)
+
+        heading_contract = dict(heading)
+        if entity_tokens:
+            # Preserve the selector's concrete entity contract through media
+            # processing. A later vision response that only says "a phone"
+            # must not erase the exact app/place match that justified this
+            # source candidate.
+            heading_contract["required_heading_tokens"] = sorted(entity_tokens)
+        records.append({
+            "heading": heading_contract,
+            "chosen": chosen,
+            "external_spec": external_spec,
+        })
+
+    # Previewing four independent headings must not wait for four serial
+    # provider round-trips. Actual licensed downloads are deliberately serial:
+    # four XL transfers in parallel saturate a personal hotspot and turn a
+    # recoverable partial transfer into four stalled ones.
+    external_results: dict[int, str | None] = {}
+    external_failures: dict[int, str] = {}
+    pending = [
+        (index, record["external_spec"])
+        for index, record in enumerate(records)
+        if record["chosen"] is None and record["external_spec"]
+    ]
+
+    def fetch_external(spec: tuple[str, set[str] | None, set[str]]) -> str | None:
+        query, strict_tokens, required_any_tokens = spec
+        kwargs: dict[str, Any] = {
+            "query": query,
+            "count": 1,
+            "plan_only": plan_only,
+            "strict_tokens": strict_tokens,
+        }
+        if required_any_tokens:
+            kwargs["required_any_tokens"] = required_any_tokens
+        return next(iter(_deposit_search_download(**kwargs)), None)
+
+    if pending and plan_only:
+        with ThreadPoolExecutor(max_workers=min(4, len(pending))) as pool:
+            futures = {
+                index: pool.submit(fetch_external, spec)
+                for index, spec in pending
+            }
+            for index, _spec in pending:
+                try:
+                    external_results[index] = futures[index].result()
+                except Exception as exc:
+                    external_results[index] = None
+                    external_failures[index] = type(exc).__name__
+    elif pending:
+        for index, spec in pending:
+            try:
+                external_results[index] = fetch_external(spec)
+            except Exception as exc:
+                external_results[index] = None
+                external_failures[index] = type(exc).__name__
+
+    if diagnostics is not None:
+        for index, error_type in external_failures.items():
+            heading_text = str(records[index]["heading"].get("text") or "başlık")
+            diagnostics.append(
+                f"DepositPhotos exact retrieval failed for {heading_text!r} "
+                f"({error_type}); no generic fallback was used"
+            )
+
+    for index, record in enumerate(records):
+        chosen = record["chosen"] or external_results.get(index)
+        if chosen and chosen not in assignments:
+            files.append(chosen)
+            assignments[chosen] = record["heading"]
+
+    deduped_files = list(dict.fromkeys(files))
+    return deduped_files, {
+        file: assignments[file]
+        for file in deduped_files
+        if file in assignments
+    }
+
+
+def _heading_specific_files(
+    *,
+    post_context: Dict[str, Any],
+    content_filter: str | None,
+    limit: int,
+    allow_external: bool,
+    plan_only: bool = False,
+) -> list[str]:
+    """Compatibility wrapper for callers that only need candidate paths."""
+    files, _assignments = _heading_specific_selection(
+        post_context=post_context,
+        content_filter=content_filter,
+        limit=limit,
+        allow_external=allow_external,
+        plan_only=plan_only,
+    )
+    return files
+
 
 def _heading_to_search_query(heading_text: str, post_location: str = "") -> str:
     """Convert a Turkish blog heading into an English DepositPhotos search query.
@@ -182,16 +1047,63 @@ def _heading_to_search_query(heading_text: str, post_location: str = "") -> str:
     import unicodedata
 
     def _norm(s: str) -> str:
+        s = s.replace("ı", "i").replace("I", "I")  # dotless-i doesn't decompose via NFKD
         return unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode().lower()
 
+    # Island name overrides (TR name → EN search term)
+    ISLAND_MAP = {
+        "sakiz": "Chios", "rodos": "Rhodes", "midilli": "Lesbos",
+        "istankoyu": "Kos", "istankoy": "Kos", "kos": "Kos",
+        "samos": "Samos", "sisam": "Samos",
+        "imroz": "Gokceada", "bozcaada": "Tenedos",
+        "naksos": "Naxos", "santorini": "Santorini", "mikonos": "Mykonos",
+    }
+
+    # Normalize curly/smart quotes to ASCII apostrophe
+    heading_text = heading_text.replace("‘", "'").replace("’", "'").replace("‚", "'")
     # Strip leading number patterns: "3. ", "10- ", "1) "
     text = re.sub(r"^\d+[\.\-\)]\s*", "", heading_text.strip())
-    # Split on em-dash / colon and keep only location part
-    text = re.split(r"\s*[—–]\s*|\s*:\s*", text)[0].strip()
+    # Extract destination from "X'den/tan/dan Y'a/ya/na Kaçış" pattern
+    m_dest = re.search(r"'?\w+'?(?:den|dan|tan|ten)\s+(.+?)'?(?:ya|na|a)\s+[KkGg]", text)
+    if m_dest:
+        text = m_dest.group(1).strip()
+    # Split an editorial suffix (`Name - why it matters`) and keep only the
+    # visual entity. A plain hyphen is common in WordPress H3s, alongside en
+    # and em dashes; require surrounding spaces so compound place names remain
+    # intact.
+    text = re.split(r"\s+(?:[—–-]|:)\s+", text, maxsplit=1)[0].strip()
     # Remove emoji and parenthetical
     text = re.sub(r"[\U00010000-\U0010ffff]", "", text)
     text = re.sub(r"\s*\([^)]*\)", "", text)
     text = text.strip()
+
+    # Provider search works best with internationally indexed landmark names.
+    # For compound editorial headings choose one concrete landmark instead of
+    # concatenating districts into a query that cannot match a provider title.
+    normalized_text = _norm(text)
+    landmark_queries = (
+        ("sultanahmet meydani", "Sultanahmet Square Istanbul"),
+        ("sultanahmet camii", "Blue Mosque Istanbul"),
+        ("topkapi sarayi", "Topkapi Palace Istanbul"),
+        ("kapalicarsi", "Grand Bazaar Istanbul"),
+        ("misir carsisi", "Egyptian Bazaar Istanbul"),
+        ("besiktas", "Besiktas Bosphorus Istanbul"),
+    )
+    for landmark, provider_query in landmark_queries:
+        if landmark in normalized_text:
+            return provider_query
+
+    # Apply island name map (before word-level processing).
+    # The match must end on a word boundary: a bare prefix test sent "Kosova"
+    # to the Greek island Kos, silently relocating the destination the way the
+    # old short-query Turkey fallback did to Ohrid.
+    island_resolved = False
+    normalized_for_island = _norm(text)
+    for tr_island, en_island in ISLAND_MAP.items():
+        if re.match(rf"{re.escape(tr_island)}\b", normalized_for_island):
+            text = en_island
+            island_resolved = True
+            break
 
     # Multi-word phrase replacements (must run before word-level)
     PHRASES = [
@@ -208,10 +1120,12 @@ def _heading_to_search_query(heading_text: str, post_location: str = "") -> str:
 
     # Word-level translations
     WORD_MAP = {
+        "antik": "ancient", "tiyatro": "theater",
         "plaji": "beach", "plaj": "beach",
         "golu": "lake", "gol": "lake",
         "selalesi": "waterfall", "selale": "waterfall",
         "kalesi": "castle", "kale": "castle",
+        "kilisesi": "church", "kilise": "church",
         "camii": "mosque", "cami": "mosque",
         "vadisi": "valley", "vadi": "valley",
         "ormani": "forest", "orman": "forest",
@@ -232,13 +1146,85 @@ def _heading_to_search_query(heading_text: str, post_location: str = "") -> str:
 
     query = " ".join(result).strip()
 
-    if post_location and _norm(post_location) not in _norm(query):
+    # When island map resolved the query, use Greece as the country hint.
+    # Otherwise keep the old Turkey fallback for general Turkish posts.
+    post_location_norm = _norm(post_location)
+    post_is_greek = any(token in post_location_norm for token in ("yunan", "greece", "greek"))
+    if island_resolved:
+        if "greece" not in query.lower():
+            query = f"{query} Greece"
+    elif not island_resolved and query.lower().startswith("harbor") and post_is_greek:
+        query = "Greek ferry port"
+    elif post_location and _norm(post_location) not in _norm(query):
         query = f"{query} {post_location}"
 
-    if "Turkey" not in query and "turkey" not in query.lower() and len(query.split()) < 4:
-        query += " Turkey"
+    # Ohrid is in North Macedonia. The former short-query Turkey fallback
+    # silently moved this exact destination into the wrong country.
+    if "ohrid" in _norm(query) and "macedonia" not in query.casefold():
+        query += " North Macedonia"
+    elif "Turkey" not in query and "turkey" not in query.lower() and "Greece" not in query and "greece" not in query.lower():
+        query += " Greece" if (island_resolved or post_is_greek) else (" Turkey" if len(query.split()) < 4 else "")
 
+    # Final pass: catch any remaining Turkish words via the slug translator
+    query = _turkify_to_english_query(query)
     return " ".join(query.split()[:5])
+
+
+def _heading_to_semantic_query(heading_text: str, post_location: str = "") -> str:
+    """Convert a heading into a compact local semantic-search query."""
+    query = _heading_to_search_query(heading_text, post_location=post_location)
+    tokens = [token for token in re.split(r"\s+", query) if token and token.lower() != "turkey"]
+    if not tokens:
+        return ""
+    first = tokens[0].strip()
+    if not first:
+        return ""
+    return {
+        "harbor": "liman",
+        "beach": "plaj",
+        "bay": "koy",
+        "island": "ada",
+        "castle": "kale",
+        "coast": "sahil",
+        "waterfall": "selale",
+        "museum": "muze",
+    }.get(first.lower(), first)
+
+
+def _semantic_heading_files(
+    *,
+    post_context: Dict[str, Any],
+    content_filter: str | None,
+    limit: int,
+) -> list[str]:
+    available_headings = post_context.get("available_headings") or []
+    if not available_headings:
+        return []
+
+    files: list[str] = []
+    post_location = _turkify_to_english_query(_extract_location(post_context))
+    for heading in available_headings[:limit]:
+        heading_text = str(heading.get("text", "") or "").strip()
+        h_q = _heading_to_semantic_query(heading_text, post_location=post_location)
+        if not h_q:
+            continue
+        semantic_anchor = _specific_anchor_text(h_q)
+        candidates = search_semantic_assets(
+            location_query=h_q,
+            count=1,
+            content_filter=content_filter,
+            post_context=post_context,
+        )
+        for candidate in candidates:
+            if candidate not in files and _candidate_matches_heading(
+                candidate,
+                heading_text=heading_text,
+                post_context=post_context,
+                anchor_text=semantic_anchor,
+            ):
+                files.append(candidate)
+                break
+    return files
 
 
 def _turkify_to_english_query(location_query: str) -> str:
@@ -249,6 +1235,7 @@ def _turkify_to_english_query(location_query: str) -> str:
     import unicodedata
 
     def _norm(w: str) -> str:
+        w = w.replace("ı", "i")  # dotless-i doesn't decompose via NFKD
         return unicodedata.normalize("NFKD", w).encode("ascii", "ignore").decode().lower()
 
     TR_STOP = {
@@ -256,12 +1243,33 @@ def _turkify_to_english_query(location_query: str) -> str:
         "rota", "rotasi", "rotalari", "seyahat", "tatil", "gezi", "bilmeniz",
         "gerekenler", "once", "hakkinda", "ile", "icin", "ve", "bir", "en",
         "iyi", "ucuz", "guncel", "detayli", "travel", "guide", "the", "and",
-        "notlari", "notlar", "deneyimler", "kisisel",
+        "notlari", "notlar", "deneyimler", "kisisel", "kent", "kenti",
+        "islemleri", "işlemleri", "esnek", "bilet", "kurallari", "kuralları",
+        "kurallar", "adasi", "adasi", "adası", "adalari", "adaları", "yakin",
+        "yakın", "yunan", "yaz", "tatilinde", "kacabileceginiz",
+        "kaçabileceğiniz", "kaçabileceginiz",
     }
     TR_GEO = {
-        "deniz": "sea", "dag": "mountain", "koy": "bay", "sehir": "city",
-        "kale": "castle", "plaj": "beach", "orman": "forest", "gol": "lake",
-        "nehir": "river", "vadi": "valley", "yayla": "plateau", "ornek": "",
+        "deniz": "sea", "dag": "mountain", "dagi": "mountain",
+        "koy": "bay", "koyu": "bay",
+        "sehir": "city",
+        "kale": "castle", "kalesi": "castle",
+        "plaj": "beach", "plaji": "beach", "sahil": "coast", "sahili": "coast",
+        "orman": "forest", "ormani": "forest", "ormanlari": "forest",
+        "gol": "lake", "golu": "lake",
+        "nehir": "river", "nehri": "river",
+        "vadi": "valley", "vadisi": "valley",
+        "yayla": "plateau", "yaylasi": "plateau",
+        "selale": "waterfall", "selalesi": "waterfall",
+        "mezar": "tombs", "mezarlari": "tombs", "mezarligi": "cemetery",
+        "muze": "museum", "muzesi": "museum",
+        "antik": "ancient",
+        "kaya": "rock",
+        "tepe": "hill", "tepesi": "hill",
+        "ada": "island", "adasi": "island",
+        "liman": "harbor", "limani": "harbor",
+        "magara": "cave", "magarasi": "cave",
+        "ornek": "",
     }
     TR_PROPER = {
         "kapadokya": "Cappadocia", "istanbul": "Istanbul", "ankara": "Ankara",
@@ -269,9 +1277,21 @@ def _turkify_to_english_query(location_query: str) -> str:
         "oludeniz": "Oludeniz", "goreme": "Goreme", "efes": "Ephesus",
         "pamukkale": "Pamukkale", "trabzon": "Trabzon", "sinop": "Sinop",
         "mugla": "Mugla", "fethiye": "Fethiye", "kas": "Kas",
+        "koycegiz": "Koycegiz", "dalyan": "Dalyan", "marmaris": "Marmaris",
+        "aydincik": "Aydincik", "kelenderis": "Kelenderis",
+        "kaunos": "Kaunos", "toparlar": "Toparlar", "sigla": "Sigla",
+        "iztuzu": "Iztuzu", "sultaniye": "Sultaniye",
+        "sandras": "Sandras", "gokcegova": "Gokcegova",
+        "cappadocia": "Cappadocia",
     }
 
+    greek_hint = any(token in _norm(location_query) for token in ("yunan", "greece", "greek"))
+
     words = location_query.split()
+    has_geo_hint = greek_hint or len(words) == 1 or any(
+        _norm(word) in TR_PROPER or _norm(word) in TR_GEO
+        for word in words
+    )
     result = []
     for w in words:
         norm = _norm(w)
@@ -284,8 +1304,9 @@ def _turkify_to_english_query(location_query: str) -> str:
         else:
             result.append(w)
 
-    if len(result) < 4 and "Turkey" not in result:
-        result.append("Turkey")
+    default_country = "Greece" if greek_hint else "Turkey"
+    if has_geo_hint and len(result) < 4 and default_country not in result:
+        result.append(default_country)
 
     return " ".join(result[:4])
 
@@ -330,21 +1351,113 @@ def _enrich_query_for_theme(
     return query
 
 
-def _deposit_search_download(query: str, count: int, plan_only: bool = False) -> list[str]:
-    """Search + download from DepositPhotos. Returns an empty list on error.
+def _deposit_search_download(
+    query: str,
+    count: int,
+    plan_only: bool = False,
+    *,
+    strict_tokens: set[str] | None = None,
+    required_any_tokens: set[str] | None = None,
+) -> list[str]:
+    """Search + download exact DepositPhotos candidates.
 
     plan_only=True: search only (free, no credits), returns preview URLs.
     plan_only=False: search + download (credits charged), returns local paths.
+
+    An empty result means no exact candidate met the semantic contract. A
+    transfer failure raises so the attach receipt can distinguish a provider
+    problem from a legitimate fail-closed selection.
     """
     try:
+        from src.pictova.providers import deposit as deposit_provider
+
+        cache_key = (query, max(count * 4, 20))
+        results = _DEPOSIT_DISCOVERY_CACHE.get(cache_key)
+        if results is None:
+            results = _load_deposit_discovery(cache_key)
+        if results is None:
+            results = deposit_provider.search(query=query, count=max(count * 4, 20))
+            _save_deposit_discovery(cache_key, results)
+        _DEPOSIT_DISCOVERY_CACHE[cache_key] = results
+        if strict_tokens is not None:
+            query_tokens = _specific_tokens(_token_set_from_text(query))
+            required_query_matches = min(2, len(query_tokens))
+            filtered = [
+                r for r in results
+                if _matches_anchor_tokens(_deposit_result_tokens(r), strict_tokens)
+                and _literal_matching_anchor_count(_deposit_result_tokens(r), query_tokens) >= required_query_matches
+            ]
+            results = filtered
+        if required_any_tokens:
+            results = [
+                result
+                for result in results
+                if _deposit_result_tokens(result) & required_any_tokens
+            ]
+        if len(results) < count:
+            return []
+
         if plan_only:
-            from src.pictova.providers.deposit import search
-            results = search(query=query, count=count)
-            return [r["preview_url"] for r in results if r.get("preview_url")]
-        from src.pictova.providers.deposit import search_and_download
-        return search_and_download(query=query, count=count)
+            selected = results[:count]
+            return [r["preview_url"] for r in selected if r.get("preview_url")]
+
+        session_id = deposit_provider._login()
+        paths: list[str] = []
+        download_failures: list[str] = []
+        # Each failed licensed transfer can consume scarce hotspot bandwidth
+        # (and may consume a provider credit). Two exact candidates per slot
+        # are enough to recover from a transient CDN stall without scanning
+        # the whole search page.
+        attempt_limit = min(len(results), max(count + 1, count * 2))
+        # A licensed asset CDN can occasionally stall even though search and
+        # licensing succeeded. Keep the exact-query filter, but advance to the
+        # next exact candidate instead of aborting the whole post batch.
+        for result in results[:attempt_limit]:
+            try:
+                path = deposit_provider.download(result["id"], session_id)
+            except Exception as exc:
+                download_failures.append(
+                    f"{result.get('id', 'unknown')}:{type(exc).__name__}"
+                )
+                continue
+            if path and path not in paths:
+                paths.append(path)
+            elif not path:
+                download_failures.append(f"{result.get('id', 'unknown')}:empty-result")
+            if len(paths) == count:
+                break
+        if len(paths) != count:
+            detail = ", ".join(download_failures) or "no downloadable exact candidate"
+            raise RuntimeError(
+                "DepositPhotos exact download incomplete "
+                f"({len(paths)}/{count}; attempted {attempt_limit}; {detail})"
+            )
+        return paths
     except Exception as e:
-        print(f"  ⚠ DepositPhotos skipped: {e}")
+        raise RuntimeError(f"DepositPhotos failed for query {query!r}: {e}") from e
+
+
+def _safe_deposit_search(
+    *,
+    diagnostics: list[str] | None,
+    context: str,
+    **kwargs: Any,
+) -> list[str]:
+    """Degrade the selection on a provider outage instead of aborting.
+
+    `_heading_specific_selection` already records the failure and continues.
+    The batch paths used to let the same RuntimeError escape, so a DepositPhotos
+    outage turned `plan` and `process` into raw tracebacks rather than the
+    structured fail-closed result every other command returns.
+    """
+    try:
+        return _deposit_search_download(**kwargs)
+    except Exception as exc:
+        if diagnostics is not None:
+            diagnostics.append(
+                f"DepositPhotos exact retrieval failed for {context!r} "
+                f"({type(exc).__name__}); no generic fallback was used"
+            )
         return []
 
 
@@ -372,9 +1485,9 @@ def _unsplash_search_download(query: str, count: int) -> list[str]:
         for i, r in enumerate(best, 1):
             try:
                 import tempfile, requests as _req, pathlib as _pl
+                from src.utils.config import env_str
                 dl_url = r["links"]["download"]
-                import os
-                access_key = os.environ.get("UNSPLASH_ACCESS_KEY", "")
+                access_key = env_str("UNSPLASH_ACCESS_KEY", "") or ""
                 resp = _req.get(dl_url, headers={"Authorization": f"Client-ID {access_key}"}, timeout=30)
                 resp.raise_for_status()
                 import re

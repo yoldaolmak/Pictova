@@ -11,6 +11,19 @@ DEFAULT_VISUAL_MEMORY_DB = PROJECT_ROOT / "data" / "visual_memory.db"
 _ENV_LOADED = False
 
 
+def _parse_env_value(value: str) -> str:
+    """Strip surrounding quotes, otherwise drop a trailing inline comment.
+
+    Two different .env readers used to disagree here: one kept the quotes, so a
+    quoted app password reached WordPress with its quotes attached and the
+    request was rejected as bad credentials.
+    """
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        return value[1:-1]
+    return value.split(" #", 1)[0].strip()
+
+
 def load_project_env() -> None:
     global _ENV_LOADED
     if _ENV_LOADED:
@@ -18,11 +31,24 @@ def load_project_env() -> None:
 
     env_path = PROJECT_ROOT / ".env"
     if env_path.exists():
-        for line in env_path.read_text().splitlines():
-            if "=" not in line or line.startswith("#"):
+        parsed: dict[str, str] = {}
+        for raw_line in env_path.read_text().splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
                 continue
+            if line.startswith("export "):
+                line = line[len("export "):].lstrip()
             key, value = line.split("=", 1)
-            os.environ.setdefault(key.strip(), value.strip())
+            key = key.strip()
+            if not key:
+                continue
+            # A key repeated in .env resolves to its last definition. Applying
+            # os.environ.setdefault per line made the first — usually the
+            # stale — definition win instead.
+            parsed[key] = _parse_env_value(value)
+        for key, value in parsed.items():
+            # A real environment variable still outranks the file.
+            os.environ.setdefault(key, value)
 
     _ENV_LOADED = True
 

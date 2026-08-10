@@ -10,6 +10,7 @@ from typing import Dict
 
 BAD_SLUG_TOKENS = {
     "depositphotos",
+    "deposit",
     "xl",
     "yo",
     "processed",
@@ -23,6 +24,34 @@ BAD_SLUG_TOKENS = {
 }
 FORBIDDEN_FALLBACK_TOKENS = {"genel", "gorsel", "gorunum", "gorunumu"}
 
+# A country name is a destination anchor, never a description of what is
+# pictured, so it must not be picked up as a scene token.  This list started as
+# the Vietnam series hardcoded into three separate helpers; naming it keeps the
+# rule in one place and lets the same slug logic work for any destination.
+COUNTRY_SLUG_TOKENS = {
+    "vietnam", "turkiye", "turkey", "yunanistan", "greece",
+    "makedonya", "macedonia", "italya", "italy", "ispanya", "spain",
+    "portekiz", "portugal", "gurcistan", "georgia", "karadag", "montenegro",
+}
+
+# Well-known destinations inside a country whose names are anchors rather than
+# scene descriptions.  Same role as COUNTRY_SLUG_TOKENS, one level down.
+DESTINATION_SLUG_TOKENS = COUNTRY_SLUG_TOKENS | {
+    "hanoi", "saygon", "halong", "halong-bay", "hoa-lu", "trang-an",
+}
+
+# Editorial filler must never leak from an article headline or a temporary
+# source filename into a published media filename.  These words neither name a
+# place nor identify what is pictured, so retaining them produces slugs such
+# as ``karadag-kisa-atmosfer`` rather than a useful asset name.
+EDITORIAL_SLUG_NOISE_TOKENS = {
+    "en", "iyi", "kisa", "atmosfer", "kare", "kadraj", "yakalamak",
+    "harika", "buyuleyici", "essiz", "muhtesem",
+    "guzel", "guzellik", "kesfet", "kesfedin", "keyifli", "unutulmaz",
+    "etmek", "gercek", "gercekten", "buyuk", "avantaj", "avantajlari",
+    "den", "dan", "de", "da", "a", "e", "na", "ne", "ya", "ye", "mi", "mı", "mu", "mü",
+}
+
 GENERIC_POST_TOKENS = {
     "gezi",
     "gezilecek",
@@ -33,6 +62,9 @@ GENERIC_POST_TOKENS = {
     "rotasi",
     "rotalari",
     "seyahat",
+    "seyahatin",
+    "seyahate",
+    "seyahati",
     "travel",
     "guide",
     "itinerary",
@@ -51,6 +83,32 @@ GENERIC_POST_TOKENS = {
     "icin",
     "the",
     "and",
+    "en",
+    "iyi",
+    "kisa",
+    "atmosfer",
+    "kare",
+    "kadraj",
+    "yakalamak",
+    "den",
+    "dan",
+    "de",
+    "da",
+    "na",
+    "ne",
+    "ya",
+    "ye",
+    "bir",
+    "etmek",
+    "gercek",
+    "gercekten",
+    "buyuk",
+    "avantaj",
+    "avantajlari",
+    "deneyimi",
+    "evden",
+    "dunya",
+    "kesfi",
     "2024",
     "2025",
     "2026",
@@ -86,6 +144,9 @@ GENERIC_SCENE_TOKENS = {
     "vehicle",
     "gorunum",
     "gorunumu",
+    "sehir",
+    "sehirde",
+    "sehrin",
     "viewpoint",
 }
 
@@ -296,6 +357,13 @@ SCENE_REMAP = {
     "park": "park",
     "street": "sokak",
     "alley": "sokak",
+    "sokak": "sokak",
+    "sokakta": "sokak",
+    "sokaktan": "sokak",
+    "sokaginda": "sokak",
+    "sokaga": "sokak",
+    "plani": "planlama",
+    "planning": "planlama",
     "port": "liman",
     "harbor": "liman",
     "pier": "iskele",
@@ -312,19 +380,6 @@ SCENE_REMAP = {
     "boat-tour": "tekne",
     "rowing": "tekne",
     "rice-field": "pirinc-tarlasi",
-}
-
-DESTINATION_PHRASES = {
-    "hanoi-old-quarter": "hanoi-old-quarter",
-    "halong-bay": "halong-bay",
-    "ha-long-bay": "halong-bay",
-    "trang-an": "trang-an",
-    "hoa-lu": "hoa-lu",
-    "ho-chi-minh-city": "saygon",
-    "ho-chi-minh": "saygon",
-    "saigon": "saygon",
-    "hanoi": "hanoi",
-    "vietnam": "vietnam",
 }
 
 # Bilinen destinasyonlar için sabit koordinatlar.
@@ -441,6 +496,8 @@ def is_good_slug(stem: str) -> bool:
         return False
     if any(token in BAD_SLUG_TOKENS for token in tokens):
         return False
+    if any(token in EDITORIAL_SLUG_NOISE_TOKENS for token in tokens):
+        return False
     if sum(ch.isdigit() for ch in slug) > max(3, len(slug) // 3):
         return False
     return True
@@ -450,14 +507,6 @@ def _clean_tokens(value: str) -> list[str]:
     slug = slugify(value)
     return [token for token in slug.split("-") if token]
 
-
-def _extract_compound_locations(text: str) -> list[str]:
-    slug = slugify(text)
-    compounds: list[str] = []
-    for needle, replacement in DESTINATION_PHRASES.items():
-        if needle in slug and replacement not in compounds:
-            compounds.append(replacement)
-    return compounds
 
 
 def _extract_scene_phrases(text: str) -> list[str]:
@@ -521,11 +570,14 @@ def read_embedded_source_metadata(path: str) -> Dict:
 
 
 def _extract_destination_tokens(post_context: Dict) -> list[str]:
+    thematic = _thematic_post_slug_tokens(post_context)
+    if thematic:
+        return thematic
     tokens: list[str] = []
     seen: set[str] = set()
     for source in (post_context.get("slug", ""),):
         for token in _clean_tokens(source):
-            if token in BAD_SLUG_TOKENS or token in GENERIC_POST_TOKENS:
+            if token in BAD_SLUG_TOKENS or token in GENERIC_POST_TOKENS or token in EDITORIAL_SLUG_NOISE_TOKENS:
                 continue
             if token.isdigit():
                 continue
@@ -538,9 +590,21 @@ def _extract_destination_tokens(post_context: Dict) -> list[str]:
     return tokens
 
 
+def _thematic_post_slug_tokens(post_context: Dict) -> list[str]:
+    """Return a stable topic base when an article has no geographic entity."""
+    tokens = set(_clean_tokens(post_context.get("slug", "")))
+    tokens.update(_clean_tokens(post_context.get("title", "")))
+    if "yalniz" in tokens and any(token.startswith("seyahat") for token in tokens):
+        return ["yalniz", "seyahat"]
+    return []
+
+
 def _extract_path_destination_tokens(original_path: str) -> list[str]:
     path = Path(original_path)
-    parts = [slugify(part) for part in path.parts]
+    # Absolute workstation paths are never editorial evidence.  Traversing
+    # ``/Users/<name>/...`` leaked local account names into public filenames.
+    # Only the source filename may contribute a last-resort semantic hint.
+    parts = [slugify(path.stem)]
     tokens: list[str] = []
     seen: set[str] = set()
     for part in parts:
@@ -554,6 +618,7 @@ def _extract_path_destination_tokens(original_path: str) -> list[str]:
                 or token in GENERIC_SCENE_TOKENS
                 or token in GENERIC_SOURCE_TOKENS
                 or token.isdigit()
+                or any(char.isdigit() for char in token)
             ):
                 continue
             if token in seen:
@@ -569,15 +634,6 @@ def _extract_source_destination_tokens(source_metadata: Dict) -> list[str]:
     tokens: list[str] = []
     seen: set[str] = set()
     description_text = str(source_metadata.get("description", ""))
-    joined_text = description_text
-    for token in _extract_compound_locations(joined_text):
-        if any(token in existing or existing in token for existing in seen):
-            continue
-        if token not in seen:
-            seen.add(token)
-            tokens.append(token)
-        if len(tokens) >= 2:
-            return tokens
     for source in (description_text,):
         for token in _clean_tokens(source):
             if token in BAD_SLUG_TOKENS or token in GENERIC_POST_TOKENS or token in GENERIC_SCENE_TOKENS or token in GENERIC_SOURCE_TOKENS:
@@ -599,11 +655,6 @@ def _extract_source_destination_variants(source_metadata: Dict) -> list[str]:
     description_text = str(source_metadata.get("description", ""))
     variants: list[str] = []
     seen: set[str] = set()
-
-    for token in _extract_compound_locations(description_text):
-        if token not in seen:
-            seen.add(token)
-            variants.append(token)
 
     for token in _extract_source_destination_tokens(source_metadata):
         if token not in seen:
@@ -628,10 +679,28 @@ def _extract_scene_tokens(metadata: Dict, destination_tokens: list[str]) -> list
     keywords = metadata.get("keywords", [])
     if isinstance(keywords, list):
         sources.extend(str(item) for item in keywords[:6])
-    sources.extend([metadata.get("title", ""), metadata.get("alt", "")])
+    # Alt text describes what is actually pictured; titles often contain the
+    # article theme and are therefore a weaker filename signal.
+    sources.extend([metadata.get("alt", ""), metadata.get("title", "")])
 
     tokens: list[str] = []
     seen: set[str] = set(destination_tokens)
+    # Prefer known visual nouns (street, lake, planlama…) before accepting an
+    # arbitrary adjective such as "dar" or "kıvırcık" as the scene label.
+    for source in sources:
+        for phrase in _extract_scene_phrases(str(source)):
+            if phrase not in seen:
+                seen.add(phrase)
+                tokens.append(phrase)
+                if len(tokens) >= 2:
+                    return tokens
+        for raw in _clean_tokens(str(source)):
+            token = _normalize_scene_token(raw)
+            if token and token != raw and token not in seen:
+                seen.add(token)
+                tokens.append(token)
+                if len(tokens) >= 2:
+                    return tokens
     for source in sources:
         for phrase in _extract_scene_phrases(str(source)):
             if any(phrase in existing or existing in phrase for existing in seen):
@@ -650,7 +719,7 @@ def _extract_scene_tokens(metadata: Dict, destination_tokens: list[str]) -> list
                 continue
             if token.isdigit():
                 continue
-            if token in {"vietnam", "hanoi", "saygon", "halong", "halong-bay", "hoa-lu", "trang-an"}:
+            if token in DESTINATION_SLUG_TOKENS:
                 continue
             if any(token in existing or existing in token for existing in seen):
                 continue
@@ -682,7 +751,7 @@ def _extract_vision_scene_tokens(metadata: Dict, destination_tokens: list[str]) 
         token = VISION_SCENE_REMAP.get(token, token)
         if token in BAD_SLUG_TOKENS or token in GENERIC_POST_TOKENS or token in GENERIC_SCENE_TOKENS or token in GENERIC_SOURCE_TOKENS:
             continue
-        if token in {"vietnam", "hanoi", "saygon", "halong", "halong-bay", "hoa-lu", "trang-an"}:
+        if token in DESTINATION_SLUG_TOKENS:
             continue
         if any(token in existing or existing in token for existing in seen):
             continue
@@ -694,8 +763,10 @@ def _extract_vision_scene_tokens(metadata: Dict, destination_tokens: list[str]) 
 
 
 def _cleanup_destination_tokens(tokens: list[str]) -> list[str]:
-    if len(tokens) > 1 and "vietnam" in tokens:
-        tokens = [token for token in tokens if token != "vietnam"]
+    # A country name carries no extra information once a more specific place
+    # is present, so it yields to the narrower anchor.
+    if len(tokens) > 1 and any(token in COUNTRY_SLUG_TOKENS for token in tokens):
+        tokens = [token for token in tokens if token not in COUNTRY_SLUG_TOKENS]
     return tokens[:2]
 
 
@@ -705,14 +776,17 @@ def _cleanup_scene_tokens(tokens: list[str]) -> list[str]:
         tokens = [token for token in tokens if token != "sokak"]
     if any("pazar-yeri" == token for token in tokens):
         tokens = [token for token in tokens if token != "pazar"]
-    return tokens[:2]
+    return [token for token in tokens if token not in EDITORIAL_SLUG_NOISE_TOKENS][:2]
 
 
 def _slug_fallback_variants(post_context: Dict, destination_tokens: list[str], scene_tokens: list[str]) -> list[str]:
     raw_slug_tokens = [
         token
         for token in _clean_tokens(post_context.get("slug", ""))
-        if token not in BAD_SLUG_TOKENS and not token.isdigit()
+        if token not in BAD_SLUG_TOKENS
+        and token not in GENERIC_POST_TOKENS
+        and token not in EDITORIAL_SLUG_NOISE_TOKENS
+        and not token.isdigit()
     ]
     slug_tokens = raw_slug_tokens[:4] or destination_tokens[:]
 
@@ -725,7 +799,6 @@ def _slug_fallback_variants(post_context: Dict, destination_tokens: list[str], s
     if destination_tokens:
         variants.append(destination_tokens[:3])
         variants.append((destination_tokens[:2] + ["manzara"])[:4])
-        variants.append((destination_tokens[:2] + ["atmosfer"])[:4])
         variants.append((destination_tokens[:2] + ["detay"])[:4])
     if destination_tokens and scene_tokens:
         variants.append((destination_tokens[:2] + scene_tokens[:1])[:4])
@@ -737,7 +810,7 @@ def _slug_fallback_variants(post_context: Dict, destination_tokens: list[str], s
         tokens = [token for token in variant if token]
         if len(tokens) < 2:
             continue
-        if any(token in FORBIDDEN_FALLBACK_TOKENS for token in tokens):
+        if any(token in FORBIDDEN_FALLBACK_TOKENS or token in EDITORIAL_SLUG_NOISE_TOKENS for token in tokens):
             continue
         slug = "-".join(tokens)
         if slug in seen:
@@ -745,6 +818,15 @@ def _slug_fallback_variants(post_context: Dict, destination_tokens: list[str], s
         seen.add(slug)
         cleaned.append(slug)
     return cleaned
+
+
+def _heading_entity_for_slug(heading: str) -> str:
+    """Keep a numbered H heading's subject, not its editorial explanation."""
+    value = re.sub(r"^\s*\d{1,3}\s*[.\-):]\s*", "", str(heading or "")).strip()
+    # WordPress list items commonly follow `Place - editorial copy`. The copy
+    # belongs in the article, not a durable media filename. Hyphens inside a
+    # proper name are left intact because the separator requires spaces.
+    return re.split(r"\s+(?:[-—–:])\s+", value, maxsplit=1)[0].strip()
 
 
 def build_publish_slug(metadata: Dict, post_context: Dict | None, original_path: str) -> str:
@@ -755,14 +837,59 @@ def build_publish_slug(metadata: Dict, post_context: Dict | None, original_path:
         source_metadata = read_embedded_source_metadata(original_path)
         if source_metadata:
             metadata["_source_embedded"] = source_metadata
-    if is_good_slug(original_stem):
-        return slugify(original_stem)
 
-    destination_tokens = _cleanup_destination_tokens(
-        _extract_source_destination_tokens(source_metadata or {})
-        or _extract_destination_tokens(post_context)
-        or _extract_path_destination_tokens(original_path)
-    )
+    # 1. Ana lokasyon (post slug) ve Heading bilgisi
+    post_slug_tokens = _extract_destination_tokens(post_context)
+    thematic_tokens = _thematic_post_slug_tokens(post_context)
+    ana_lokasyon = post_slug_tokens[0] if post_slug_tokens else ""
+
+    heading = str(metadata.get("heading") or "").strip()
+    heading_tokens = []
+    if heading:
+        clean_heading = _heading_entity_for_slug(heading)
+        heading_slug = slugify(clean_heading)
+        heading_tokens = [
+            t for t in heading_slug.split("-")
+            if t
+            and t not in BAD_SLUG_TOKENS
+            and t not in GENERIC_POST_TOKENS
+            and t not in EDITORIAL_SLUG_NOISE_TOKENS
+        ]
+
+    # Ana lokasyon ve heading birleştir
+    destination_tokens = []
+    if ana_lokasyon:
+        destination_tokens.append(ana_lokasyon)
+    if not thematic_tokens:
+        for token in heading_tokens:
+            if token not in destination_tokens:
+                destination_tokens.append(token)
+
+    # 2. is_good_slug bypass'ı (Eğer orijinal isim çok iyi bir SEO ismiyse, sadece destinasyon ekleyip kullan)
+    if is_good_slug(original_stem):
+        stem_slug = slugify(original_stem)
+        stem_tokens = stem_slug.split("-")
+
+        # Eğer destination_tokens içindeki kelimeler orijinal slug'da yoksa başa ekle
+        missing_dest = [t for t in destination_tokens if t not in stem_tokens]
+        if missing_dest:
+            combined = missing_dest + stem_tokens
+            deduped: list[str] = []
+            for t in combined:
+                if t and t not in deduped:
+                    deduped.append(t)
+            return "-".join(deduped[:5]) or stem_slug
+        return stem_slug
+
+    # 3. Eğer is_good_slug değilse (örn. UUID veya IMG_1234), dinamik isimlendir
+    # Destination token'ları tamamla (heading yoksa normal lokasyonları al)
+    if not destination_tokens:
+        destination_tokens = _cleanup_destination_tokens(
+            _extract_source_destination_tokens(source_metadata or {})
+            or _extract_path_destination_tokens(original_path)
+        )
+
+    # Scene (sahne) token'larını çıkar
     scene_tokens = _cleanup_scene_tokens(_extract_scene_tokens(metadata, destination_tokens))
     if not scene_tokens:
         scene_tokens = _cleanup_scene_tokens(_extract_vision_scene_tokens(metadata, destination_tokens))
@@ -774,11 +901,16 @@ def build_publish_slug(metadata: Dict, post_context: Dict | None, original_path:
             for token in _clean_tokens(original_stem)
             if token not in BAD_SLUG_TOKENS
             and token not in GENERIC_POST_TOKENS
+            and token not in EDITORIAL_SLUG_NOISE_TOKENS
             and not token.isdigit()
+            and not any(char.isdigit() for char in token)
             # UUID stems produce hex fragments like "9ec243fb"; reject them.
             and not (len(token) >= 4 and all(c in _HEX_CHARS for c in token))
         ]
         scene_tokens = original_tokens[:2]
+
+    if thematic_tokens and scene_tokens:
+        return "-".join((thematic_tokens + scene_tokens[:1])[:3])
 
     if not destination_tokens and not scene_tokens:
         return "seyahat-kare"
@@ -789,6 +921,7 @@ def build_publish_slug(metadata: Dict, post_context: Dict | None, original_path:
         if variants:
             return variants[0]
         return "-".join((destination_tokens + ["sahne"])[:4])
+
     raw = "-".join((destination_tokens + scene_tokens)[:5])
     deduped: list[str] = []
     for token in raw.split("-"):
@@ -804,7 +937,9 @@ def _slug_from_heading(heading: str, post_context: Dict) -> str | None:
     Örnek: 'İnceburun Feneri' → 'inceburun-feneri'
            'Sinop Gezilecek Yerler' → 'sinop' (generic tokenlar düşer)
     """
-    raw = slugify(heading)
+    if _thematic_post_slug_tokens(post_context):
+        return None
+    raw = slugify(_heading_entity_for_slug(heading))
     if not raw:
         return None
     # Trailing digit-only tokens yasak (e.g. "h2", "1", "4")
@@ -813,6 +948,7 @@ def _slug_from_heading(heading: str, post_context: Dict) -> str | None:
         if t
         and t not in GENERIC_POST_TOKENS
         and t not in BAD_SLUG_TOKENS
+        and t not in EDITORIAL_SLUG_NOISE_TOKENS
         and not t.isdigit()
         and not (len(t) <= 2 and t[0] == "h" and t[1:].isdigit())
     ]
@@ -825,6 +961,12 @@ def _slug_from_heading(heading: str, post_context: Dict) -> str | None:
         combined = (dest_tokens[:1] + tokens)[:5]
     else:
         combined = tokens[:5]
+    # A named app in a numbered utility list needs a stable, descriptive
+    # filename and must not collide with a generic global attachment title.
+    post_tokens = set(_clean_tokens(post_context.get("title", "")))
+    post_tokens.update(_clean_tokens(post_context.get("slug", "")))
+    if post_tokens & {"uygulama", "uygulamasi", "uygulamalari", "uygulamalar", "app", "apps"} and "uygulama" not in combined:
+        combined = (combined + ["uygulama"])[:5]
     slug = "-".join(combined)
     return slug if len(slug) >= 6 else None
 
@@ -846,8 +988,14 @@ def build_publish_slug_candidates(metadata: Dict, post_context: Dict | None, ori
         source_metadata = read_embedded_source_metadata(original_path)
         if source_metadata:
             metadata["_source_embedded"] = source_metadata
-    verified_locations = _cleanup_destination_tokens(
-        _extract_source_destination_tokens(source_metadata or {})
+    source_destination_tokens = _extract_source_destination_tokens(source_metadata or {})
+    verified_locations = _cleanup_destination_tokens(source_destination_tokens)
+    # The country anchor is dropped from `verified_locations` above, but it is
+    # still the qualifier that disambiguates a slug ("halong-vietnam").  Read it
+    # from the uncleaned tokens instead of hardcoding one destination here.
+    country_token = next(
+        (token for token in source_destination_tokens if token in COUNTRY_SLUG_TOKENS),
+        "",
     )
     verified_location_variants = _extract_source_destination_variants(source_metadata or {})
     scene_tokens = _cleanup_scene_tokens(_extract_scene_tokens(metadata, verified_locations))
@@ -859,8 +1007,8 @@ def build_publish_slug_candidates(metadata: Dict, post_context: Dict | None, ori
         for location in verified_location_variants:
             for variant in (
                 f"{slug_base}-{location}" if slug_base else location,
-                f"{location}-vietnam" if location != "vietnam" else "",
-                f"vietnam-{location}" if location != "vietnam" else "",
+                f"{location}-{country_token}" if country_token and location != country_token else "",
+                f"{country_token}-{location}" if country_token and location != country_token else "",
             ):
                 clean = slugify(variant)
                 if clean and clean not in candidates:
@@ -868,7 +1016,7 @@ def build_publish_slug_candidates(metadata: Dict, post_context: Dict | None, ori
         for scene in scene_tokens:
             for variant in (
                 f"{slug_base}-{scene}" if slug_base else scene,
-                f"vietnam-{scene}" if "vietnam" in verified_locations else "",
+                f"{country_token}-{scene}" if country_token in verified_locations and country_token else "",
             ):
                 clean = slugify(variant)
                 if clean and clean not in candidates:

@@ -3,20 +3,49 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import fcntl
 from pathlib import Path
 import re
 from typing import Any, Dict, Tuple
 
 from src.main import YOOrchestrator
-from src.core.media_publish import build_publish_slug_candidates, embed_metadata, ensure_publish_path, ensure_unique_slug
+from src.core.media_publish import build_publish_slug_candidates, embed_metadata, ensure_unique_slug
 from src.pictova.profiles.yoldaolmak import apply_environment
 from src.pictova.engine.metadata import build_native_metadata_map
 from src.pictova.engine.quality import quality_gate_native_batch
-from src.pictova.providers.wordpress import fetch_post_context
+from src.pictova.providers.wordpress import fetch_post_context, resolve_post_site
 from src.pictova.engine.processor import process_selected_images
 from src.pictova.engine.publisher import publish_processed_images
-from src.pictova.engine.selector import resolve_source_images
+from src.pictova.engine.selector import (
+    _matching_anchor_count,
+    _token_set_from_text,
+    resolve_source_images,
+)
 from src.pictova.engine.vision_chain import download_icloud_photo
+
+
+_ATTACH_LOCK_DIR = Path(__file__).resolve().parents[3] / "data" / "attach_locks"
+
+
+def _try_acquire_attach_lock(site: str, post_id: Any):
+    """Return a process-scoped post lock, or None when another attach owns it."""
+    safe_site = re.sub(r"[^a-z0-9_-]+", "-", str(site).casefold()).strip("-") or "site"
+    _ATTACH_LOCK_DIR.mkdir(parents=True, exist_ok=True)
+    path = _ATTACH_LOCK_DIR / f"{safe_site}-{int(post_id)}.lock"
+    handle = path.open("a+")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        handle.close()
+        return None
+    return handle
+
+
+def _release_attach_lock(handle: Any) -> None:
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    finally:
+        handle.close()
 
 
 def _photo_index_stats() -> dict:
@@ -68,28 +97,109 @@ def summarize_post_context(post_context: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _compute_assigned_headings(processed_images: list[str], request: Dict[str, Any], post_context: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+def _compute_assigned_headings(
+    processed_images: list[str],
+    request: Dict[str, Any],
+    post_context: Dict[str, Any],
+    *,
+    processed_details: Dict[str, Dict[str, Any]] | None = None,
+    heading_assignments: Dict[str, Dict[str, Any]] | None = None,
+) -> Dict[str, Dict[str, Any]]:
     assigned = {}
     force_heading = request.get("heading")
     if force_heading:
         for img in processed_images:
-            assigned[img] = {"text": force_heading, "level": request.get("heading_level") or 0}
+            assigned[img] = {
+                "text": force_heading,
+                "level": request.get("heading_level") or 0,
+            }
         return assigned
 
+    # Selection is heading-aware. Preserve that exact source-to-heading link
+    # through image processing; otherwise an Airbnb image can be selected for
+    # its H3 and then get inserted below an unrelated introductory H2 merely
+    # because the H2 appears first in the post.
+    processed_details = processed_details or {}
+    heading_assignments = heading_assignments or {}
+    for img in processed_images:
+        source = str(processed_details.get(img, {}).get("input") or "")
+        heading = heading_assignments.get(source)
+        if heading:
+            assigned[img] = dict(heading)
+
     available = post_context.get("available_headings") or []
-    if available:
-        n_images = len(processed_images)
+    explicit_query = request.get("location_query") or request.get("query")
+    if available and explicit_query:
+        query_tokens = _token_set_from_text(explicit_query)
+        ranked = [
+            (_matching_anchor_count(_token_set_from_text(item.get("text", "")), query_tokens), pos, item)
+            for pos, item in enumerate(available)
+        ]
+        relevant = [item for score, _, item in sorted(ranked, key=lambda row: (-row[0], row[1])) if score > 0]
+        if relevant:
+            available = relevant
+    remaining_images = [img for img in processed_images if img not in assigned]
+    if available and remaining_images:
+        n_images = len(remaining_images)
         n_heads = len(available)
         if n_images > n_heads:
             # More images than headings — round-robin across headings
-            for slot, img in enumerate(processed_images):
-                assigned[img] = available[slot % n_heads]
+            for slot, img in enumerate(remaining_images):
+                assigned[img] = dict(available[slot % n_heads])
         else:
-            step = n_heads / (n_images + 1)
-            for slot, img in enumerate(processed_images):
-                idx = min(int(step * (slot + 1)), n_heads - 1)
-                assigned[img] = available[idx]
+            # Prefer the earliest available headings first.
+            # The previous spacing formula skipped the first main heading and
+            # pushed the first image into later logistics sections.
+            for slot, img in enumerate(remaining_images):
+                idx = min(slot, n_heads - 1)
+                assigned[img] = dict(available[idx])
     return assigned
+
+
+def _is_comprehensive_places_article(post_context: Dict[str, Any]) -> bool:
+    """Whether a two-image H3 gallery helps scan a long places list."""
+    title = str(post_context.get("title") or "").casefold()
+    headings = post_context.get("available_headings") or []
+    h3_count = sum(int(item.get("level") or 0) == 3 for item in headings)
+    return ("gezilecek yer" in title or "görülecek yer" in title) and h3_count >= 3
+
+
+def apply_semantic_gallery_policy(
+    metadata_dict: Dict[str, Dict[str, Any]],
+    processed_details: Dict[str, Dict[str, Any]],
+    post_context: Dict[str, Any],
+    *,
+    requested_count: int,
+) -> Dict[str, Dict[str, Any]]:
+    """Mark only visually and structurally justified image pairs as galleries.
+
+    A gallery is presentation, not a shorthand for a requested count.  It is
+    useful for a pair of portrait images in a larger run, or for a pair placed
+    under one H3 in a long "gezilecek yerler" list.  Everything else remains a
+    sequence of individual responsive image blocks.
+    """
+    grouped: Dict[tuple[str, int], list[str]] = {}
+    for image_file, metadata in metadata_dict.items():
+        metadata["gallery"] = False
+        heading = str(metadata.get("heading") or "").strip()
+        level = int(metadata.get("heading_level") or 0)
+        if heading:
+            grouped.setdefault((heading, level), []).append(image_file)
+
+    places_article = _is_comprehensive_places_article(post_context)
+    for (_, heading_level), files in grouped.items():
+        if len(files) != 2:
+            continue
+        portrait_pair = all(
+            float((processed_details.get(image_file) or {}).get("aspect_ratio") or 1.0) < 0.92
+            for image_file in files
+        )
+        long_run_portrait_pair = requested_count > 4 and portrait_pair
+        places_subheading_pair = requested_count >= 6 and places_article and heading_level == 3
+        if long_run_portrait_pair or places_subheading_pair:
+            for image_file in files:
+                metadata_dict[image_file]["gallery"] = True
+    return metadata_dict
 
 
 _SLUG_GENERIC = {
@@ -97,14 +207,16 @@ _SLUG_GENERIC = {
     "nerede", "nasil", "nasil-gidilir", "seyahat", "travel", "guide",
     "rota", "rotasi", "rotalar", "detayli", "guncel", "notlari",
     "ve", "ile", "icin", "the", "and", "bir",
+    "yakin", "yakın", "ulasim", "ulaşım", "gecis", "geçiş",
+    "tavsiyelerim", "tavsiyesi", "ipuclari", "ipuçları",
 }
 
 
 def derive_location_query(post_context: Dict[str, Any]) -> str:
-    """Extract the first 1-2 meaningful destination tokens from the slug.
+    """Extract the first meaningful destination token from the slug.
 
-    Full title breaks AND-logic semantic search (8+ tokens → nothing matches).
-    Just the destination name is enough: 'sinop-gezilecek-yerler' → 'sinop'.
+    Full title breaks AND-logic semantic search. The destination name alone is
+    usually enough: 'sinop-gezilecek-yerler' → 'sinop'.
     """
     slug = str(post_context.get("slug") or "").strip()
     tokens = [
@@ -112,7 +224,7 @@ def derive_location_query(post_context: Dict[str, Any]) -> str:
         if t and t not in _SLUG_GENERIC and len(t) >= 3 and not t.isdigit()
     ]
     if tokens:
-        return " ".join(tokens[:2])
+        return tokens[0]
     title = str(post_context.get("title") or "").strip()
     title = re.split(r"\s+[—–|]\s+", title, maxsplit=1)[0]
     title_tokens = []
@@ -122,7 +234,7 @@ def derive_location_query(post_context: Dict[str, Any]) -> str:
             continue
         if normalized not in title_tokens:
             title_tokens.append(normalized)
-    return " ".join(title_tokens[:2])
+    return title_tokens[0] if title_tokens else ""
 
 
 def build_failed_attach_result(
@@ -188,18 +300,22 @@ def normalize_attach_result(
 
 
 def prepare_attach_request(**kwargs: Any) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
-    site = kwargs.get("site", "yoldaolmak")
-    if site == "yoldaolmak":
-        apply_environment()
+    site = kwargs.get("site", "auto")
+    apply_environment()  # always load .env (DP/Unsplash/Gemini creds are shared)
 
     request = dict(kwargs)
     post_id = request.get("post_id")
     post_context = {}
     if post_id:
         try:
-            post_context = fetch_post_context(post_id, site=site) or {}
-        except Exception:
+            if str(site).strip().lower() == "auto":
+                site, post_context = resolve_post_site(int(post_id), site=site)
+            else:
+                post_context = fetch_post_context(int(post_id), site=site)
+        except Exception as exc:
             post_context = {}
+            request["_site_resolution_error"] = str(exc)
+    request["site"] = site
 
     if request.get("source") == "semantic" and not request.get("location_query"):
         request["location_query"] = derive_location_query(post_context)
@@ -223,6 +339,15 @@ def validate_attach_request(
 ) -> Dict[str, Any] | None:
     post_id = request.get("post_id")
     source = request.get("source", "semantic")
+    if request.get("_site_resolution_error"):
+        return build_failed_attach_result(
+            site=site,
+            post_id=post_id,
+            request=request,
+            post_context=post_context,
+            constraints=constraints,
+            warning=str(request["_site_resolution_error"]),
+        )
     if source == "semantic" and not request.get("location_query"):
         return build_failed_attach_result(
             site=site,
@@ -327,7 +452,7 @@ def build_attach_plan(
         "status": "success",
         "selection": selection,
         "photo_index_stats": _photo_index_stats(),
-        "warnings": [],
+        "warnings": list(selection.get("warnings", [])),
     }
 
 
@@ -357,8 +482,8 @@ def build_process_result(
         content_filter=request.get("content_filter"),
         post_context=post_context,
     )
-    _warnings: list[str] = []
-    _files = resolve_icloud_files(selection.get("files", []), _warnings)
+    icloud_warnings: list[str] = []
+    _files = resolve_icloud_files(selection.get("files", []), icloud_warnings)
     processed = process_selected_images(_files)
     return {
         "command": "process",
@@ -372,7 +497,9 @@ def build_process_result(
         "processed_images": processed.get("processed_images", []),
         "panoramic_images": processed.get("panoramic_images", {}),
         "work_dir": processed.get("work_dir"),
-        "warnings": [],
+        # An iCloud asset that failed to download silently disappeared from the
+        # result; the caller saw a short list with no reason for it.
+        "warnings": list(selection.get("warnings", [])) + icloud_warnings,
     }
 
 
@@ -411,7 +538,14 @@ def finalize_publish_assets(
             candidate_slug = ensure_unique_slug(best_candidate, used_slugs)
         used_slugs.add(candidate_slug)
 
-        final_path = ensure_publish_path(target_dir, candidate_slug)
+        # `used_slugs` above is the only collision domain that matters for an
+        # attach batch.  A previous controlled retry can leave the same name in
+        # `work_dir`; treating that temporary artifact as a new public-media
+        # collision used to turn a stable name such as
+        # `yalniz-seyahat-sokak` into `yalniz-seyahat-sokak-detay`.
+        # Replacing the deterministic work artifact is safe and preserves the
+        # intended WordPress filename on retries.
+        final_path = target_dir / f"{candidate_slug}.webp"
         source_path = Path(file)
         if source_path != final_path:
             source_path.replace(final_path)
@@ -444,6 +578,36 @@ def execute_native_attach(
     if failure:
         return failure
 
+    lock = _try_acquire_attach_lock(site, request["post_id"])
+    if lock is None:
+        return build_failed_attach_result(
+            site=site,
+            post_id=request.get("post_id"),
+            request=request,
+            post_context=post_context,
+            constraints=constraints,
+            warning="Pictova attach is already in progress for this post; no duplicate work was started",
+        )
+    try:
+        return _execute_native_attach_locked(
+            site=site,
+            request=request,
+            post_context=post_context,
+            constraints=constraints,
+        )
+    finally:
+        _release_attach_lock(lock)
+
+
+def _execute_native_attach_locked(
+    *,
+    site: str,
+    request: Dict[str, Any],
+    post_context: Dict[str, Any],
+    constraints: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Run one attach while this post's process lock is held."""
+
     started = datetime.now(timezone.utc)
     selection = resolve_source_images(
         source=request.get("source", "semantic"),
@@ -454,11 +618,49 @@ def execute_native_attach(
         content_filter=request.get("content_filter"),
         post_context=post_context,
     )
-    _icloud_warnings: list[str] = []
-    _resolved_files = resolve_icloud_files(selection.get("files", []), _icloud_warnings)
+    requested_count = int(request.get("count") or 0)
+    selected_assets = list(selection.get("files", []))
+    selection_warnings: list[str] = list(selection.get("warnings", []))
+    if not selected_assets:
+        failure = build_failed_attach_result(
+            site=site,
+            post_id=request.get("post_id"),
+            request=request,
+            post_context=post_context,
+            constraints=constraints,
+            warning=(
+                f"Strict selection produced 0/{requested_count} exact matches; "
+                "nothing was uploaded"
+            ),
+        )
+        failure["selected_assets"] = selected_assets
+        failure["warnings"] = selection_warnings + failure["warnings"]
+        failure["raw"] = {"selection": selection}
+        return failure
+    if requested_count and len(selected_assets) < requested_count:
+        selection_warnings.append(
+            f"Strict selection produced {len(selected_assets)}/{requested_count} exact matches; "
+            "only verified assets were uploaded"
+        )
+    # An iCloud download failure removes a selected asset from the run. It has
+    # to reach the receipt, otherwise a short upload looks like a clean success.
+    _resolved_files = resolve_icloud_files(selected_assets, selection_warnings)
     processed = process_selected_images(_resolved_files)
     processed_images = processed.get("processed_images", [])
-    assigned_headings = _compute_assigned_headings(processed_images, request, post_context)
+    selector_assignments = dict(selection.get("heading_assignments", {}))
+    approved_assignments = request.get("approved_heading_assignments", {})
+    if isinstance(approved_assignments, dict):
+        # An approved plan may be replayed from locally downloaded assets.
+        # Retain its exact source-to-H-heading binding so a retry does not
+        # rediscover DepositPhotos or lose the original semantic placement.
+        selector_assignments.update(approved_assignments)
+    assigned_headings = _compute_assigned_headings(
+        processed_images,
+        request,
+        post_context,
+        processed_details=processed.get("processed_details", {}),
+        heading_assignments=selector_assignments,
+    )
 
     metadata_dict, metadata_warnings = build_native_metadata_map(
         processed_images,
@@ -473,6 +675,29 @@ def execute_native_attach(
         processed_details=processed.get("processed_details", {}),
         post_context=post_context,
     )
+    approved_metadata = apply_semantic_gallery_policy(
+        approved_metadata,
+        approved_details,
+        post_context,
+        requested_count=requested_count,
+    )
+    if not approved_files:
+        failure = build_failed_attach_result(
+            site=site,
+            post_id=request.get("post_id"),
+            request=request,
+            post_context=post_context,
+            constraints=constraints,
+            warning=(
+                f"Quality gate approved 0/{len(selected_assets)} selected assets; "
+                "nothing was uploaded"
+            ),
+        )
+        failure["selected_assets"] = selected_assets
+        failure["rejected_assets"] = blocked
+        failure["warnings"].extend(metadata_warnings)
+        failure["raw"] = {"selection": selection, "processed": processed}
+        return failure
     finalized_files, finalized_metadata, finalized_details = finalize_publish_assets(
         processed_images=approved_files,
         metadata_dict=approved_metadata,
@@ -493,7 +718,7 @@ def execute_native_attach(
         "post_id": request.get("post_id"),
         "request": request,
         "post_context": summarize_post_context(post_context),
-        "status": "success" if not published.get("failed") else "partial",
+        "status": "partial" if (published.get("failed") or selection_warnings or blocked) else "success",
         "selected_assets": selection.get("files", []),
         "rejected_assets": blocked,
         "uploaded_media_ids": [item.get("media_id") for item in published.get("uploaded", []) if item.get("media_id")],
@@ -501,7 +726,7 @@ def execute_native_attach(
         "uploaded": published.get("uploaded", []),
         "failed_uploads": published.get("failed", []),
         "constraints": constraints,
-        "warnings": metadata_warnings,
+        "warnings": selection_warnings + metadata_warnings,
         "duration_ms": duration_ms,
         "raw": {
             "selection": selection,

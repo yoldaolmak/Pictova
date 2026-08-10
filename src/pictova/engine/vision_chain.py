@@ -1,9 +1,11 @@
 """Pictova Vision Chain — image analysis priority chain.
 
-Priority (no basic fallback ever):
-  1. Gemini Flash REST (GEMINI_API_KEY — Google AI Studio, free)
-  2. Codex CLI web login  (codex exec --ephemeral --yolo, ~/.codex/auth.json)
-  3. Claude CLI web login (claude --print --allowedTools Read)
+Priority (no basic fallback ever), matching ``analyze_image_vision_chain``:
+  1. LM Studio local vision model (free, keeps API quota unspent)
+  2. Gemini Flash REST (GEMINI_API_KEYS or GEMINI_API_KEY — Google AI Studio)
+  3. OpenAI mini vision API (cheap bounded fallback)
+  4. Codex CLI web login  (codex exec --yolo, ~/.codex/auth.json)
+  5. Claude CLI web login (claude --print --allowedTools Read)
 
 Any one succeeds → returns.
 All fail → RuntimeError (NO basic fallback).
@@ -14,16 +16,44 @@ from __future__ import annotations
 import base64
 import json
 import os
-import random
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any, Dict
+
+from src.utils.config import env_str
+
+
+# A 401 means the key itself is rejected, so it stays disabled. A 429/503 is a
+# transient quota or capacity signal: disabling such a key for the lifetime of
+# the `serve` process used to silence a key that recovers within minutes.
+_GEMINI_REJECTED_KEYS: set[str] = set()
+_GEMINI_COOLDOWN_UNTIL: dict[str, float] = {}
+_GEMINI_COOLDOWN_SECONDS = 15 * 60
+
+
+def _gemini_key_available(api_key: str) -> bool:
+    if api_key in _GEMINI_REJECTED_KEYS:
+        return False
+    until = _GEMINI_COOLDOWN_UNTIL.get(api_key)
+    if until is None:
+        return True
+    if time.monotonic() >= until:
+        del _GEMINI_COOLDOWN_UNTIL[api_key]
+        return True
+    return False
+
+
+def _gemini_api_keys() -> list[str]:
+    """Return the configured Gemini keys, plural variable first."""
+    raw = env_str("GEMINI_API_KEYS") or env_str("GEMINI_API_KEY") or ""
+    return list(dict.fromkeys(key.strip() for key in raw.split(",") if key.strip()))
 
 
 # ── Common helpers ────────────────────────────────────────────────────────
@@ -69,23 +99,24 @@ def _parse_json_from_text(text: str) -> Dict:
 
 
 def _vision_prompt(image_path: str, location_hint: str, post_context: Dict) -> str:
-    title = str(post_context.get("title") or "").strip()
-    location_ctx = location_hint or title or ""
-    apple_labels = post_context.get("apple_labels") or []
-    apple_labels_ctx = ", ".join(apple_labels) if apple_labels else ""
+    # This prompt deliberately receives no article title, heading, location,
+    # or photo-library labels. Those are selection hints, not pixel evidence;
+    # showing them to vision lets a model invent a brand or landmark to match
+    # the requested section (for example, calling any beach portrait "Tinder").
+    del image_path, location_hint, post_context
     return (
-        f"Görseli seyahat blogu bağlamında analiz et ve SADECE JSON döndür.\n"
-        f"Bağlam: Lokasyon={location_ctx or '?'}, Apple_Etiketleri={apple_labels_ctx or '?'}\n\n"
+        f"Görseli yalnızca görünen piksellere dayanarak analiz et ve SADECE JSON döndür.\n"
+        f"Başlık, lokasyon veya yazı bağlamı verilmemiştir: görünmeyen marka, uygulama, kişi, yer veya olayı tahmin etme.\n\n"
         f"Kurallar:\n"
         f"- alt: Ekran okuyucu ve erişilebilirlik için sade görsel tanımı (Türkçe, maks 120 kr)\n"
-        f"- title: Arama motoru için lokasyon ve konuyu içeren SEO başlığı (Türkçe, maks 60 kr, örn: 'Gümüşlük Bodrum Dalgalı Deniz')\n"
-        f"- caption: İnsan okuyucu için fotoğrafa anlam, bağlam ve seyahat ruhu katan doğal, gerçekçi alt yazı (Türkçe, maks 150 kr, örn: 'Gümüşlük kıyılarında akşamüstü rüzgarıyla dalgalanan Ege suları.')\n"
-        f"- description: Görsel detaylarını lokasyon bağlamıyla birleştiren zengin açıklama (Türkçe, maks 250 kr)\n"
+        f"- title: Yalnızca görünür konu veya okunabilen işaret/markadan oluşan kısa başlık (Türkçe, maks 60 kr)\n"
+        f"- visible_text: Ekran, tabela veya logoda gerçekten okunabilen metin; yoksa boş string\n"
+        f"- caption/description: Kısa görsel bilgisi; editoryal cümle veya hikâye yazma\n"
         f"- summary: Tek cümle özet (Türkçe, maks 120 kr)\n"
         f"- keywords: 3-5 adet anahtar kelime (Türkçe)\n"
         f"- scene/activity: Kategori ve aktivite (İngilizce)\n"
         f"- story_score: Seyahat değeri (0.0 - 1.0)\n\n"
-        f"{{\"alt\":\"...\",\"title\":\"...\",\"caption\":\"...\",\"description\":\"...\",\"summary\":\"...\",\"keywords\":[],\"people\":[],\"scene\":\"...\",\"activity\":\"...\",\"story_score\":0.8}}"
+        f"{{\"alt\":\"...\",\"title\":\"...\",\"visible_text\":\"...\",\"caption\":\"...\",\"description\":\"...\",\"summary\":\"...\",\"keywords\":[],\"people\":[],\"scene\":\"...\",\"activity\":\"...\",\"story_score\":0.8}}"
     )
 
 
@@ -96,43 +127,18 @@ def _analyze_gemini_flash(
     location_hint: str,
     post_context: Dict,
 ) -> Dict[str, Any]:
-    keys_env = os.environ.get("GEMINI_API_KEYS", "").strip()
-    
-    # Fallback to reading .env directly if not in environ
-    if not keys_env:
-        env_path = Path(__file__).parent.parent.parent.parent / ".env"
-        if env_path.exists():
-            for line in env_path.read_text().splitlines():
-                if line.startswith("GEMINI_API_KEYS="):
-                    keys_env = line.split("=", 1)[1].strip('"\' ')
-                    break
-                elif line.startswith("GEMINI_API_KEY="):
-                    if not keys_env:  # Only use single key if plural keys not found
-                        keys_env = line.split("=", 1)[1].strip('"\' ')
+    keys_list = _gemini_api_keys()
+    available_keys = [key for key in keys_list if _gemini_key_available(key)]
+    if not available_keys:
+        raise RuntimeError("No usable Gemini key remains right now")
 
-    if keys_env:
-        # Strip quotes if present
-        keys_env = keys_env.strip('"\'')
-        keys_list = [k.strip() for k in keys_env.split(",")]
-        api_key = random.choice(keys_list)
-    else:
-        api_key = os.environ.get("GEMINI_API_KEY", "").strip()
-        
-    if not api_key:
-        raise RuntimeError("GEMINI_API_KEY or GEMINI_API_KEYS not set")
-
-    b64, mime = _image_b64(image_path)
+    # Gemini quota is useful only if its request stays small enough for a
+    # tethered connection. Metadata does not need the original multi-megabyte
+    # source; the same bounded 1024px evidence used by the paid mini fallback
+    # preserves semantic inspection while avoiding a needless upload.
+    b64, mime = _image_b64(image_path, max_side=1024)
     prompt = _vision_prompt(image_path, location_hint, post_context)
-    model = os.environ.get("GEMINI_VISION_MODEL", "").strip()
-    if not model:
-        env_path = Path(__file__).parent.parent.parent.parent / ".env"
-        if env_path.exists():
-            for line in env_path.read_text().splitlines():
-                if line.startswith("GEMINI_VISION_MODEL="):
-                    model = line.split("=", 1)[1].strip('"\' ')
-                    break
-    if not model:
-        model = "gemini-3.5-flash"
+    model = env_str("GEMINI_VISION_MODEL") or "gemini-2.5-flash"
 
     body = json.dumps({
         "contents": [{
@@ -141,55 +147,65 @@ def _analyze_gemini_flash(
                 {"text": prompt},
             ]
         }],
-        "generationConfig": {"maxOutputTokens": 2048, "temperature": 0.2},
+        "generationConfig": {"maxOutputTokens": 400, "temperature": 0.2},
     }).encode()
 
-    url = (
-        f"https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{model}:generateContent?key={api_key}"
-    )
-    import time
-    
-    # Prepare all available keys (try a different key on 429)
-    all_keys = []
-    keys_raw = os.environ.get("GEMINI_API_KEYS", "").strip()
-    if not keys_raw:
-        env_path = Path(__file__).parent.parent.parent.parent / ".env"
-        if env_path.exists():
-            for ln in env_path.read_text().splitlines():
-                if ln.startswith("GEMINI_API_KEYS="):
-                    keys_raw = ln.split("=", 1)[1].strip('"\' ')
-                    break
-    if keys_raw:
-        all_keys = [k.strip() for k in keys_raw.split(",") if k.strip()]
-    
-    for attempt in range(8):
-        # Pick a different key on each retry
-        if all_keys and attempt > 0:
-            api_key = random.choice(all_keys)
-            url = (
-                f"https://generativelanguage.googleapis.com/v1beta/models/"
-                f"{model}:generateContent?key={api_key}"
-            )
+    data = None
+    last_error = None
+    for api_key in available_keys:
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{model}:generateContent?key={api_key}"
+        )
         try:
             req = urllib.request.Request(url, data=body, method="POST",
                                          headers={"Content-Type": "application/json"})
             with urllib.request.urlopen(req, timeout=30) as resp:
                 data = json.loads(resp.read())
-            # Mandatory wait after successful request to avoid IP throttling
-            time.sleep(4)
             break
         except urllib.error.HTTPError as e:
-            if e.code in (429, 503):
-                if attempt < 7:
-                    wait = min(30 * (2 ** attempt), 300)  # 30s, 60s, 120s, 240s, 300s...
-                    print(f"  [!] Gemini {e.code} (key ...{api_key[-5:]}), waiting {wait}s, will try a different key...", file=sys.stderr)
-                    time.sleep(wait)
-                    continue
+            last_error = e
+            if e.code in (401, 429, 503):
+                if e.code == 401:
+                    _GEMINI_REJECTED_KEYS.add(api_key)
+                    scope = "rejected, key disabled"
+                else:
+                    _GEMINI_COOLDOWN_UNTIL[api_key] = time.monotonic() + _GEMINI_COOLDOWN_SECONDS
+                    scope = f"throttled, key paused for {_GEMINI_COOLDOWN_SECONDS // 60}m"
+                print(f"  [!] Gemini {e.code} (key ...{api_key[-5:]}), {scope}", file=sys.stderr)
+                continue
             raise
+
+    if data is None:
+        raise RuntimeError(f"Gemini keys exhausted: {last_error}")
 
     text = data["candidates"][0]["content"]["parts"][0]["text"]
     return _parse_json_from_text(text)
+
+
+def _analyze_openai_mini(
+    image_path: str,
+    location_hint: str,
+    post_context: Dict,
+) -> Dict[str, Any]:
+    """Use the configured low-cost OpenAI vision fallback after Gemini."""
+    if not env_str("OPENAI_API_KEY"):
+        raise RuntimeError("OpenAI vision key is not configured")
+
+    from src.core.metadata_generator import YOMetadataGenerator
+
+    # A 1024px JPEG preserves enough visual evidence for metadata while
+    # avoiding an unnecessary multi-megabyte API upload on a mobile hotspot.
+    image_data, media_type = _image_b64(image_path, max_side=1024)
+    result = YOMetadataGenerator(use_gpt=True)._analyze_gpt(
+        image_data,
+        media_type,
+        _vision_prompt(image_path, location_hint, post_context),
+    )
+    analysis = result.get("analysis") if isinstance(result, dict) else None
+    if not isinstance(analysis, dict):
+        raise RuntimeError("OpenAI vision returned no metadata object")
+    return analysis
 
 
 # ── 2. Codex CLI web login ───────────────────────────────────────────────────
@@ -271,7 +287,10 @@ def _prepare_image_for_cli(image_path: str, max_side: int = 512) -> str:
     """Convert HEIC or large files to a small JPEG thumbnail. Returns the path."""
     p = Path(image_path)
     ext = p.suffix.lower()
-    tmp = Path(tempfile.gettempdir()) / f"pictova_thumb_{p.stem}.jpg"
+    # A fixed /tmp name is both a collision between concurrent runs on the same
+    # stem and a world-writable path another user can pre-create.
+    thumb_dir = Path(tempfile.mkdtemp(prefix="pictova_thumb_"))
+    tmp = thumb_dir / f"{p.stem}.jpg"
 
     # 1. Conversion via PIL (best quality)
     try:
@@ -397,7 +416,10 @@ def _analyze_lm_studio(
         raise RuntimeError(f"LM Studio cevap vermiyor: {e}")
 
     # Prepare image
-    b64_mime, b64_data = _image_b64(image_path, max_side=1024)
+    # _image_b64 sırasıyla (veri, MIME) döndürür. Bunlar ters atandığında
+    # LM Studio'ya `data:<base64>;base64,image/jpeg` gönderiliyor ve görsel
+    # model isteği daha analiz aşamasına gelmeden reddediliyordu.
+    b64_data, b64_mime = _image_b64(image_path, max_side=1024)
     prompt = _vision_prompt(image_path, location_hint, post_context)
 
     system_msg = (
@@ -487,7 +509,16 @@ def analyze_image_vision_chain(
     except Exception as exc:
         errors.append(f"gemini_flash: {exc}")
 
-    # 2. Codex CLI
+    # 2. Cheap OpenAI vision fallback. Do this before invoking an interactive
+    # CLI model, which is slower and consumes substantially more task tokens.
+    try:
+        result = _analyze_openai_mini(image_path, location_hint, post_context)
+        result["source"] = "openai_mini"
+        return result
+    except Exception as exc:
+        errors.append(f"openai_mini: {exc}")
+
+    # 3. Codex CLI
     try:
         result = _analyze_codex(image_path, location_hint, post_context)
         result["source"] = "codex_cli"
@@ -495,7 +526,7 @@ def analyze_image_vision_chain(
     except Exception as exc:
         errors.append(f"codex_cli: {exc}")
 
-    # 3. Claude CLI
+    # 4. Claude CLI
     try:
         result = _analyze_claude_cli(image_path, location_hint, post_context)
         result["source"] = "claude_cli"
@@ -514,7 +545,9 @@ def has_any_vision_source() -> bool:
     if _lm_studio_has_vision_model():
         return True
         
-    if os.environ.get("GEMINI_API_KEY", "").strip():
+    if any(_gemini_key_available(key) for key in _gemini_api_keys()):
+        return True
+    if env_str("OPENAI_API_KEY"):
         return True
     if _codex_check_login() and _find_bin("codex"):
         return True
@@ -535,17 +568,24 @@ def download_icloud_photo(uuid: str, dest_dir: str | None = None) -> str:
     dest = Path(dest_dir) if dest_dir else Path(_tmp.gettempdir()) / "pictova_icloud"
     dest.mkdir(parents=True, exist_ok=True)
 
+    # UUID ve hedef dizin argv üzerinden geçirilir. Kaynak koda gömüldüklerinde
+    # tırnak içeren bir değer script'i sessizce bozuyor ve rastgele kod
+    # çalıştırılabilir bir yüzey bırakıyordu.
     script = (
-        f"import osxphotos, sys\n"
-        f"db = osxphotos.PhotosDB()\n"
-        f"res = db.query(osxphotos.QueryOptions(uuid=['{uuid}']))\n"
-        f"if not res: sys.exit(1)\n"
-        f"exported = res[0].export('{dest}', use_photos_export=True, overwrite=True, timeout=300)\n"
-        f"print(exported[0] if exported else '')\n"
+        "import osxphotos, sys\n"
+        "uuid, dest = sys.argv[1], sys.argv[2]\n"
+        "db = osxphotos.PhotosDB()\n"
+        "res = db.query(osxphotos.QueryOptions(uuid=[uuid]))\n"
+        "if not res: sys.exit(1)\n"
+        "exported = res[0].export(dest, use_photos_export=True, overwrite=True, timeout=300)\n"
+        "print(exported[0] if exported else '')\n"
     )
 
     py311 = shutil.which("python3.11") or "python3.11"
-    result = _sp.run([py311, "-c", script], capture_output=True, text=True, timeout=360)
+    result = _sp.run(
+        [py311, "-c", script, str(uuid), str(dest)],
+        capture_output=True, text=True, timeout=360,
+    )
     path = result.stdout.strip()
     if result.returncode != 0 or not path:
         raise RuntimeError(

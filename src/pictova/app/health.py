@@ -9,6 +9,7 @@ import sys
 from typing import Dict, List
 
 from src.pictova.config import get_vil_dir, get_visual_memory_db_path, load_project_env
+from src.services.wordpress import YOWordPressUploader
 
 
 REQUIRED_MODULES = ["PIL", "requests", "numpy", "cv2"]
@@ -38,10 +39,14 @@ def _db_stats(db_path: str) -> Dict:
 
 def _vision_chain_status() -> Dict:
     try:
-        from src.pictova.engine.vision_chain import has_any_vision_source, _find_bin, _codex_check_login
+        from src.pictova.engine.vision_chain import (
+            has_any_vision_source, _find_bin, _codex_check_login, _gemini_api_keys,
+        )
         return {
+            # GEMINI_API_KEYS is the variable the analyzer actually prefers;
+            # reporting only the singular name marked a working setup as unconfigured.
             "any_source": has_any_vision_source(),
-            "gemini_key": bool(os.environ.get("GEMINI_API_KEY", "").strip()),
+            "gemini_key": bool(_gemini_api_keys()),
             "codex_logged_in": _codex_check_login(),
             "codex_bin": _find_bin("codex"),
             "claude_bin": _find_bin("claude"),
@@ -70,7 +75,8 @@ def run_health_check() -> Dict:
         "visual_memory_db": db_path,
         "photo_index": _db_stats(db_path),
         "vision_chain": _vision_chain_status(),
+        "wordpress_sites": YOWordPressUploader.site_readiness(verify_remote=True),
         "anthropic_key": bool(os.environ.get("ANTHROPIC_API_KEY")),
-        "gemini_key": bool(os.environ.get("GEMINI_API_KEY")),
+        "gemini_key": bool(os.environ.get("GEMINI_API_KEYS") or os.environ.get("GEMINI_API_KEY")),
         "modules": modules,
     }
