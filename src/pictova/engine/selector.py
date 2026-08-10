@@ -18,6 +18,7 @@ from src.core.media_quality import BAD_METADATA_TOKENS, GENERIC_ANCHORS, normali
 from src.pictova.engine.search import load_vil_images_from_index_for_post, search_semantic_assets
 from src.pictova.config import get_visual_memory_db_path
 from src.pictova.engine.placement import is_placement_target, rank_headings
+from src.pictova.engine.query_expansion import expand_heading_query
 
 
 # The exact free discovery result is reusable by the paid phase. Keep it in
@@ -897,6 +898,56 @@ def _heading_specific_selection(
             except Exception as exc:
                 external_results[index] = None
                 external_failures[index] = type(exc).__name__
+
+    # Second pass: a heading the exact contract could not satisfy gets one
+    # broadened, model-written query. The result is still a query — the same
+    # verification applies, so a broad search that matches nothing leaves the
+    # section empty exactly as before.
+    broadened: dict[int, str] = {}
+    still_empty = [
+        index for index, record in enumerate(records)
+        if record["chosen"] is None
+        and external_results.get(index) is None
+        and index not in external_failures
+    ]
+    # One model round-trip per empty heading would dominate the run time of a
+    # long list. The exact pass is what fills a guide; broadening is a repair
+    # for a few stubborn sections, so it is budgeted accordingly.
+    remaining_budget = max(0, limit - len(files) - sum(
+        1 for index, record in enumerate(records)
+        if record["chosen"] or external_results.get(index)
+    ))
+    for index in still_empty[:max(remaining_budget, 0)]:
+        heading = records[index]["heading"]
+        for expanded_query in expand_heading_query(str(heading.get("text") or ""), post_context):
+            anchor_tokens = _specific_tokens(_token_set_from_text(expanded_query))
+            if not anchor_tokens:
+                continue
+            try:
+                found = next(
+                    iter(_deposit_search_download(
+                        query=expanded_query,
+                        count=1,
+                        plan_only=plan_only,
+                        strict_tokens=anchor_tokens,
+                    )),
+                    None,
+                )
+            except Exception as exc:
+                external_failures[index] = type(exc).__name__
+                break
+            if found:
+                external_results[index] = found
+                broadened[index] = expanded_query
+                break
+
+    if diagnostics is not None:
+        for index, expanded_query in broadened.items():
+            heading_text = str(records[index]["heading"].get("text") or "başlık")
+            diagnostics.append(
+                f"{heading_text!r} için tam eşleşme yoktu; genişletilmiş sorgu "
+                f"kullanıldı: {expanded_query!r}"
+            )
 
     if diagnostics is not None:
         for index, error_type in external_failures.items():
