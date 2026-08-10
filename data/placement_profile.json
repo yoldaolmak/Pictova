@@ -1,0 +1,66 @@
+{
+  "_note": "scripts/learn_placement_behavior.py çıktısından türetilmiş gözlem. Elle yazılmış kural değil; yayındaki postların ölçülmüş davranışı.",
+  "source": {
+    "site": "yoldaolmak",
+    "sampled_posts": 300,
+    "guide_posts": 172,
+    "with_images": 139,
+    "pictova_managed": 4
+  },
+  "heading_fill_rate": {
+    "h2": {
+      "total": 662,
+      "filled": 116,
+      "rate": 0.175
+    },
+    "h2-numbered": {
+      "total": 18,
+      "filled": 9,
+      "rate": 0.5
+    },
+    "h3": {
+      "total": 456,
+      "filled": 61,
+      "rate": 0.134
+    },
+    "h3-numbered": {
+      "total": 832,
+      "filled": 591,
+      "rate": 0.71
+    },
+    "h4": {
+      "total": 96,
+      "filled": 9,
+      "rate": 0.094
+    },
+    "h4-numbered": {
+      "total": 5,
+      "filled": 0,
+      "rate": 0.0
+    }
+  },
+  "block_shapes": {
+    "image-1": 571,
+    "gallery-2": 239,
+    "gallery-1": 36,
+    "gallery-3": 16,
+    "gallery-4": 2
+  },
+  "images_per_filled_section": {
+    "1": 510,
+    "2": 236,
+    "3": 22,
+    "4": 9,
+    "5": 4,
+    "6": 2,
+    "8": 1,
+    "7": 1,
+    "10": 1
+  },
+  "images_per_post": {
+    "median": 7,
+    "mean": 9.14
+  },
+  "median_heading_coverage": 0.36,
+  "intro_image_share": 0.921
+}
