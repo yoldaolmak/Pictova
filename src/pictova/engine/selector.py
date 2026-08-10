@@ -15,7 +15,7 @@ import tempfile
 import time
 from src.core.processor import get_vil_images
 from src.core.media_quality import BAD_METADATA_TOKENS, GENERIC_ANCHORS, normalize_text
-from src.main import load_vil_images_from_index_for_post, search_semantic_assets
+from src.pictova.engine.search import load_vil_images_from_index_for_post, search_semantic_assets
 from src.pictova.config import get_visual_memory_db_path
 from src.pictova.engine.placement import is_placement_target, rank_headings
 

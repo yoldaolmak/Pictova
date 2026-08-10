@@ -49,3 +49,6 @@ build/
 
 # Ham yerleşim taraması (yayın içeriği, büyük) — özeti data/placement_profile.json
 data/placement_behavior.json
+
+# macOS
+.DS_Store

@@ -91,7 +91,6 @@ def test_build_native_metadata_map_uses_cache(tmp_path):
          patch("src.pictova.engine.metadata.analyze_image_vision_chain") as mock_chain:
         meta, warnings = build_native_metadata_map(
             [str(fake_img)],
-            location_hint="Sinop",
             post_context={"title": "Sinop Gezisi"},
         )
 
@@ -110,7 +109,14 @@ def test_build_native_metadata_map_falls_back_to_vision(tmp_path):
 
     from src.pictova.engine.metadata import build_native_metadata_map
 
-    mock_result = {"alt": "a" * 20, "title": "T" * 10, "caption": "C" * 15, "description": "D" * 25, "keywords": ["k"]}
+    mock_result = {
+        "alt": "a" * 20,
+        "title": "T" * 10,
+        "caption": "Karaburun'da bu görselde akşam ışığı kıyıya vuruyor.",
+        "description": "D" * 25,
+        "keywords": ["kıyı"],
+        "scene": "coast",
+    }
     with patch("src.pictova.config.get_visual_memory_db_path", return_value=Path(db)), \
          patch("src.pictova.engine.metadata.has_any_vision_source", return_value=True), \
          patch("src.pictova.engine.metadata.analyze_image_vision_chain", return_value=dict(mock_result)) as mock_chain:
@@ -119,4 +125,72 @@ def test_build_native_metadata_map_falls_back_to_vision(tmp_path):
             post_context={},
         )
 
-    mock_chain.assert_called_once()
+    mock_chain.assert_called_once_with(str(fake_img), location_hint="", post_context={})
+    caption = meta[str(fake_img)]["caption"].lower()
+    assert caption == ""
+
+
+def test_native_metadata_keeps_visual_evidence_separate_from_assigned_heading(tmp_path):
+    db = str(tmp_path / "empty.db")
+    _make_minimal_db(db, with_scanned=False)
+    fake_img = tmp_path / "swing.jpg"
+    fake_img.write_bytes(b"fake")
+
+    from src.pictova.engine.metadata import build_native_metadata_map
+
+    analysis = {
+        "alt": "Sahilde salıncakta sallanan bir kadın.",
+        "title": "Sahil salıncağı",
+        "caption": "Sahilde salıncakta sallanan kadın.",
+        "description": "Kumsaldaki salıncak.",
+        "summary": "Sahilde salıncakta sallanan kadın.",
+        "keywords": ["sahil", "salıncak", "kadın"],
+        "scene": "beach",
+    }
+    with patch("src.pictova.config.get_visual_memory_db_path", return_value=Path(db)), \
+         patch("src.pictova.engine.metadata.has_any_vision_source", return_value=True), \
+         patch("src.pictova.engine.metadata.analyze_image_vision_chain", return_value=dict(analysis)):
+        meta, _ = build_native_metadata_map(
+            [str(fake_img)],
+            assigned_headings={
+                str(fake_img): {
+                    "text": "7. Tinder",
+                    "level": 3,
+                    "required_heading_tokens": ["tinder"],
+                },
+            },
+            post_context={"title": "Seyahat Uygulamaları"},
+        )
+
+    result = meta[str(fake_img)]
+    assert result["title"] == "Tinder"
+    assert "tinder" not in result["visual_evidence"].casefold()
+
+
+def test_editorial_policy_leaves_caption_empty_without_article_copy():
+    from src.pictova.engine.metadata import apply_editorial_metadata_policy
+
+    result = apply_editorial_metadata_policy(
+        {"title": "Samuil Kalesi", "alt": "Samuil Kalesi", "caption": "Samuil Kalesi"},
+        heading_text="4. Samuil Kalesi - Şehrin koruyucusu",
+        post_context={"title": "Ohrid Gezi Rehberi"},
+    )
+
+    assert result["caption"] == ""
+    assert result["description"] == "Samuil Kalesi."
+
+
+def test_editorial_policy_uses_numbered_heading_subject_as_short_title():
+    from src.pictova.engine.metadata import apply_editorial_metadata_policy
+
+    result = apply_editorial_metadata_policy(
+        {
+            "title": "Antik Tiyatro - Tarihin sahnesine adım atın",
+            "alt": "Ohrid kentindeki antik tiyatro basamakları.",
+            "caption": "Ohrid antik tiyatrosu.",
+        },
+        heading_text="3. Antik Tiyatro - Tarihin sahnesine adım atın",
+        post_context={"title": "Ohrid Gezi Rehberi"},
+    )
+
+    assert result["title"] == "Antik Tiyatro"

@@ -43,3 +43,15 @@ def test_config_uses_repo_root_defaults():
 
 def test_wordpress_module_import():
     import src.services.wordpress  # noqa: F401
+
+
+def test_wordpress_site_readiness_is_secret_free():
+    from src.services.wordpress import YOWordPressUploader
+
+    readiness = YOWordPressUploader.site_readiness()
+
+    assert set(readiness) == {"yoldaolmak", "gezievreni", "gezgindunyasi"}
+    for site in readiness.values():
+        assert site["status"] in {"ready", "blocked"}
+        assert isinstance(site["missing"], list)
+        assert "password" not in site

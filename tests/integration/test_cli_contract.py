@@ -34,11 +34,10 @@ def test_run_attach_job_derives_location_and_constraints(monkeypatch):
                 },
             }
 
-    monkeypatch.setattr(
-        attach_engine,
-        "YOOrchestrator",
-        FakeOrchestrator,
-    )
+    # The legacy orchestrator is imported inside execute_legacy_attach now, so
+    # it has to be patched on its own module rather than on the engine.
+    import src.main as legacy_main
+    monkeypatch.setattr(legacy_main, "YOOrchestrator", FakeOrchestrator)
     monkeypatch.setattr(
         attach_engine,
         "fetch_post_context",

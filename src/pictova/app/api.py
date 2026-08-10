@@ -34,7 +34,7 @@ def gallery_query(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 def search_photos(payload: Dict[str, Any]) -> Dict[str, Any]:
     """POST /search — lokasyon bazlı fotoğraf arama."""
-    from src.main import search_semantic_assets
+    from src.pictova.engine.search import search_semantic_assets
     query = str(payload.get("query", "")).strip()
     if not query:
         return {"status": "failed", "warning": "query gerekli"}
@@ -54,7 +54,7 @@ def review_post(payload: Dict[str, Any]) -> Dict[str, Any]:
     site = payload.get("site", "auto")
     post_id = payload.get("post_id")
     try:
-        from src.main import search_semantic_assets
+        from src.pictova.engine.search import search_semantic_assets
         if str(site).strip().lower() == "auto":
             site, ctx = resolve_post_site(int(post_id), site=site)
         else:

@@ -228,3 +228,36 @@ def test_rollback_is_skipped_when_the_post_cannot_be_reloaded():
 
     assert result["attempted"] is False
     assert uploader.deleted == []
+
+
+# ── Architecture: the engine must not depend on the legacy pipeline ─────────
+
+def test_engine_modules_do_not_import_the_legacy_orchestrator_at_module_scope():
+    """Search belongs to the engine, not to the pipeline it replaced.
+
+    `src/main.py` used to own semantic search, so every canonical engine module
+    imported from the legacy orchestrator — the dependency pointed backwards and
+    closed an import cycle once main.py needed anything from the engine.
+    """
+    import ast
+    from pathlib import Path
+
+    import src.pictova.engine as engine_package
+
+    engine_dir = Path(engine_package.__file__).parent
+    offenders = []
+    for path in sorted(engine_dir.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            # Only module-level imports matter; a function-local import of the
+            # legacy orchestrator is the documented compatibility entry point.
+            if not isinstance(node, ast.Module):
+                continue
+            for stmt in node.body:
+                if isinstance(stmt, ast.ImportFrom) and (stmt.module or "").startswith("src.main"):
+                    offenders.append(f"{path.name}:{stmt.lineno}")
+                if isinstance(stmt, ast.Import):
+                    for alias in stmt.names:
+                        if alias.name.startswith("src.main"):
+                            offenders.append(f"{path.name}:{stmt.lineno}")
+    assert not offenders, f"engine imports legacy pipeline at module scope: {offenders}"

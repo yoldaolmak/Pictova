@@ -186,7 +186,7 @@ def test_claude_model_ids_are_plausible():
 # ── FTS failures must not hide programming errors ───────────────────────────
 
 def test_semantic_search_only_swallows_sqlite_errors(tmp_path, monkeypatch):
-    from src import main as main_module
+    from src.pictova.engine import search as main_module
 
     db = tmp_path / "visual_memory.db"
     connection = sqlite3.connect(db)

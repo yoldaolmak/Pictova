@@ -8,7 +8,6 @@ from pathlib import Path
 import re
 from typing import Any, Dict, Tuple
 
-from src.main import YOOrchestrator
 from src.core.media_publish import build_publish_slug_candidates, embed_metadata, ensure_unique_slug
 from src.pictova.profiles.yoldaolmak import apply_environment
 from src.pictova.engine.metadata import build_native_metadata_map
@@ -391,6 +390,12 @@ def execute_legacy_attach(
     post_context: Dict[str, Any],
     constraints: Dict[str, Any],
 ) -> Dict[str, Any]:
+    # Imported here, not at module scope: the legacy orchestrator now depends on
+    # the engine's search module, so a top-level import would close a cycle.
+    # Keeping it local also makes the direction explicit — the engine does not
+    # need the legacy pipeline, only this one compatibility entry point does.
+    from src.main import YOOrchestrator
+
     started = datetime.now(timezone.utc)
     orchestrator = YOOrchestrator()
     raw = orchestrator.run_pipeline(**request)

@@ -6,12 +6,6 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from src.core.media_publish import (
-    build_publish_slug_candidates,
-    embed_metadata,
-    ensure_publish_path,
-    ensure_unique_slug,
-)
 from src.pictova.config import get_visual_memory_db_path
 
 
@@ -28,18 +22,27 @@ def gallery_search(
     con = sqlite3.connect(db_path)
     con.row_factory = sqlite3.Row
 
-    conditions = ["a.is_personal = 0"]
+    # Every condition is written against the bare column name; the FTS query
+    # aliases the table and prefixes them. Deriving the prefixed form beats the
+    # old chain of per-column .replace() calls, which silently missed any
+    # column a later edit added.
+    conditions = ["is_personal = 0"]
     params: list[Any] = []
 
     if only_local:
-        conditions.append("a.source_path != ''")
+        conditions.append("source_path != ''")
 
     if only_scanned:
-        conditions.append("a.vision_scan_status = 'done'")
+        conditions.append("vision_scan_status = 'done'")
 
     if city:
-        conditions.append("(LOWER(a.city) = LOWER(?) OR LOWER(a.state_province) = LOWER(?))")
+        conditions.append("(LOWER(city) = LOWER(?) OR LOWER(state_province) = LOWER(?))")
         params.extend([city, city])
+
+    def aliased(clause: str) -> str:
+        for column in ("is_personal", "source_path", "vision_scan_status", "city", "state_province"):
+            clause = clause.replace(column, f"a.{column}")
+        return clause
 
     rows: list = []
     try:
@@ -52,43 +55,45 @@ def gallery_search(
             FROM asset_search s
             JOIN asset_index a ON a.source_id = s.source_id
             WHERE s.document MATCH ?
-              AND {' AND '.join(conditions)}
+              AND {' AND '.join(aliased(c) for c in conditions)}
             ORDER BY
               (CASE WHEN a.vision_scan_status = 'done' THEN 1 ELSE 0 END) DESC,
               a.quality_score DESC
             LIMIT ?
         """
-        rows = con.execute(fts_sql, [fts_q, *params, count * 2]).fetchall()
-    except Exception:
-        pass
+        try:
+            rows = con.execute(fts_sql, [fts_q, *params, count * 2]).fetchall()
+        except sqlite3.Error:
+            # A malformed FTS token degrades to the LIKE fallback below. Only
+            # sqlite errors are absorbed; a programming error still surfaces.
+            rows = []
 
-    # Yeterli değilse LIKE fallback
-    if len(rows) < count:
-        like_val = f"%{query.lower()}%"
-        seen_ids = {r["source_id"] for r in rows}
-        # LIKE fallback: conditions'daki "a." prefix'leri kaldır
-        like_conditions = [c.replace("a.is_personal", "is_personal")
-                            .replace("a.source_path", "source_path")
-                            .replace("a.vision_scan_status", "vision_scan_status")
-                            .replace("a.city", "city")
-                            .replace("a.state_province", "state_province")
-                           for c in conditions]
-        like_cond = " AND ".join(like_conditions + [
-            "(LOWER(COALESCE(city,'')) LIKE ? OR LOWER(COALESCE(state_province,'')) LIKE ? "
-            "OR LOWER(COALESCE(summary,'')) LIKE ?)"
-        ])
-        fb = con.execute(f"""
-            SELECT source_id, source_path, filename, city, state_province, country,
-                   quality_score, selection_score, orientation, scene, activity, summary,
-                   ai_keywords_json, vision_scan_status, latitude, longitude
-            FROM asset_index
-            WHERE {like_cond}
-            ORDER BY quality_score DESC
-            LIMIT ?
-        """, [*params, like_val, like_val, like_val, count]).fetchall()
-        rows = list(rows) + [r for r in fb if r["source_id"] not in seen_ids]
+        if len(rows) < count:
+            like_val = f"%{query.lower()}%"
+            seen_ids = {r["source_id"] for r in rows}
+            like_cond = " AND ".join(conditions + [
+                "(LOWER(COALESCE(city,'')) LIKE ? OR LOWER(COALESCE(state_province,'')) LIKE ? "
+                "OR LOWER(COALESCE(summary,'')) LIKE ?)"
+            ])
+            fb_sql = f"""
+                SELECT source_id, source_path, filename, city, state_province, country,
+                       quality_score, selection_score, orientation, scene, activity, summary,
+                       ai_keywords_json, vision_scan_status, latitude, longitude
+                FROM asset_index
+                WHERE {like_cond}
+                ORDER BY quality_score DESC
+                LIMIT ?
+            """
+            try:
+                fb = con.execute(fb_sql, [*params, like_val, like_val, like_val, count]).fetchall()
+            except sqlite3.Error:
+                fb = []
+            rows = list(rows) + [r for r in fb if r["source_id"] not in seen_ids]
+    finally:
+        # The connection used to be closed only on the success path, so any
+        # query error leaked it for the lifetime of the process.
+        con.close()
 
-    con.close()
     results = []
     for r in rows[:count]:
         d = dict(r)
@@ -101,16 +106,18 @@ def gallery_stats() -> Dict[str, Any]:
     """Kısa istatistik özeti."""
     db_path = str(get_visual_memory_db_path())
     con = sqlite3.connect(db_path)
-    row = con.execute("""
-        SELECT
-          COUNT(*) AS total,
-          SUM(CASE WHEN source_path != '' THEN 1 ELSE 0 END) AS local_count,
-          SUM(CASE WHEN source_path  = '' THEN 1 ELSE 0 END) AS icloud_count,
-          SUM(CASE WHEN vision_scan_status = 'done' THEN 1 ELSE 0 END) AS scanned,
-          COUNT(DISTINCT COALESCE(city, state_province)) AS unique_locations
-        FROM asset_index WHERE is_personal = 0
-    """).fetchone()
-    con.close()
+    try:
+        row = con.execute("""
+            SELECT
+              COUNT(*) AS total,
+              SUM(CASE WHEN source_path != '' THEN 1 ELSE 0 END) AS local_count,
+              SUM(CASE WHEN source_path  = '' THEN 1 ELSE 0 END) AS icloud_count,
+              SUM(CASE WHEN vision_scan_status = 'done' THEN 1 ELSE 0 END) AS scanned,
+              COUNT(DISTINCT COALESCE(city, state_province)) AS unique_locations
+            FROM asset_index WHERE is_personal = 0
+        """).fetchone()
+    finally:
+        con.close()
     return {
         "total": row[0],
         "local": row[1],
@@ -120,11 +127,6 @@ def gallery_stats() -> Dict[str, Any]:
     }
 
 
-__all__ = [
-    "build_publish_slug_candidates",
-    "embed_metadata",
-    "ensure_publish_path",
-    "ensure_unique_slug",
-    "gallery_search",
-    "gallery_stats",
-]
+# Only the gallery surface belongs here; the publish helpers were re-exported
+# from this module for no reason and made it look like a second publish API.
+__all__ = ["gallery_search", "gallery_stats"]
