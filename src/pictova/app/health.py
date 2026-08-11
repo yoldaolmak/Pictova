@@ -55,7 +55,7 @@ def _vision_chain_status() -> Dict:
         return {"error": str(exc)}
 
 
-def run_health_check() -> Dict:
+def run_health_check(*, verify_upload: bool = False) -> Dict:
     load_project_env()
     modules: List[Dict[str, str]] = []
     failed = False
@@ -75,7 +75,9 @@ def run_health_check() -> Dict:
         "visual_memory_db": db_path,
         "photo_index": _db_stats(db_path),
         "vision_chain": _vision_chain_status(),
-        "wordpress_sites": YOWordPressUploader.site_readiness(verify_remote=True),
+        "wordpress_sites": YOWordPressUploader.site_readiness(
+            verify_remote=True, verify_upload=verify_upload
+        ),
         "anthropic_key": bool(os.environ.get("ANTHROPIC_API_KEY")),
         "gemini_key": bool(os.environ.get("GEMINI_API_KEYS") or os.environ.get("GEMINI_API_KEY")),
         "modules": modules,

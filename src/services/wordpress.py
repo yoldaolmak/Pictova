@@ -129,7 +129,7 @@ class YOWordPressUploader:
     }
 
     @classmethod
-    def site_readiness(cls, *, verify_remote: bool = False) -> Dict[str, Dict[str, object]]:
+    def site_readiness(cls, *, verify_remote: bool = False, verify_upload: bool = False) -> Dict[str, Dict[str, object]]:
         """Return publish readiness without ever returning credential values.
 
         A missing app password used to appear only after a job had already
@@ -153,12 +153,12 @@ class YOWordPressUploader:
                 "credential_names": config.get("credential_names", "") if "app_password" in missing else "",
             }
             if verify_remote and not missing:
-                result.update(cls.check_site_access(site))
+                result.update(cls.check_site_access(site, verify_upload=verify_upload))
             readiness[site] = result
         return readiness
 
     @classmethod
-    def check_site_access(cls, site: str) -> Dict[str, object]:
+    def check_site_access(cls, site: str, *, verify_upload: bool = False) -> Dict[str, object]:
         """Verify WordPress application-password access without exposing it."""
         if site not in cls.SITE_ENDPOINTS:
             return {"status": "blocked", "missing": ["site"]}
@@ -178,7 +178,11 @@ class YOWordPressUploader:
                 "missing": missing,
                 "credential_names": config.get("credential_names", "") if "app_password" in missing else "",
             }
-        return cls(site).verify_access()
+        uploader = cls(site)
+        access = uploader.verify_access()
+        if verify_upload and access.get("status") == "ready":
+            access.update(uploader.verify_upload_path())
+        return access
 
     def __init__(self, site: str = "yoldaolmak"):
         if site not in self.SITE_ENDPOINTS:
@@ -203,6 +207,43 @@ class YOWordPressUploader:
             "User-Agent": "YO-OS-Media-Uploader/1.0",
         })
         return session
+
+    def verify_upload_path(self) -> Dict[str, object]:
+        """Prove the media pipeline can actually write, then undo the proof.
+
+        Reading a post and writing a file are different permissions. A site can
+        answer every REST read while `wp-content/uploads/<year>/<month>` refuses
+        the move — which is invisible until a batch has already spent provider
+        credits on downloads. This uploads one tiny PNG and deletes it again.
+        """
+        # Smallest valid 1x1 PNG; small enough that a quota failure is the only
+        # plausible size-related cause.
+        pixel = base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+        )
+        try:
+            response = self.session.post(
+                f"{self.base_url}/wp-json/wp/v2/media",
+                data=pixel,
+                headers={
+                    "Content-Disposition": 'attachment; filename="pictova-write-check.png"',
+                    "Content-Type": "image/png",
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+        except requests.exceptions.RequestException as exc:
+            return {"upload": "blocked", "upload_error": _request_error_detail(exc)}
+
+        media_id = int((response.json() or {}).get("id") or 0)
+        if not media_id:
+            return {"upload": "blocked", "upload_error": "media id missing from response"}
+        removed = self.delete_media(media_id)
+        return {
+            "upload": "ready",
+            "upload_probe_removed": bool(removed.get("success")),
+            "upload_probe_media_id": media_id,
+        }
 
     def verify_access(self) -> Dict[str, object]:
         """Return a compact live access status for this configured site."""

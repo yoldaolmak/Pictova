@@ -115,7 +115,11 @@ def build_parser() -> argparse.ArgumentParser:
     serve_cmd.add_argument("--host", default="127.0.0.1")
     serve_cmd.add_argument("--port", type=int, default=8040)
 
-    sub.add_parser("health")
+    health_cmd = sub.add_parser("health")
+    health_cmd.add_argument(
+        "--verify-upload", action="store_true",
+        help="Yayın yolunu gerçekten dene: 1x1 PNG yükleyip hemen siler",
+    )
     return parser
 
 
@@ -215,7 +219,7 @@ def _dispatch(args, parser, out) -> int:
         return 0 if result.get("status") == "success" else 1
 
     if args.command == "health":
-        result = run_health_check()
+        result = run_health_check(verify_upload=getattr(args, "verify_upload", False))
         _print_json(result, out)
         return 0 if result.get("status") == "ok" else 1
 
