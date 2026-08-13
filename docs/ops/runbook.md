@@ -33,7 +33,7 @@ PY
 ## Run Tests
 
 ```bash
-python3 -m pytest -q
+python3.10 -m pytest -q
 ```
 
 Expected: all passed, 0 failures.
@@ -76,9 +76,9 @@ curl -s http://127.0.0.1:8040/jobs
 Run after importing new photos:
 
 ```bash
-cd /path/to/YO_OS_VIL
-./.venv/bin/python index_memory_daily.py --mode photos --daily-limit 100
-./.venv/bin/python extract_apple_photos_ml.py
+python3 scripts/index_turkey_photos.py
+python3 scripts/rebuild_fts.py
+python3 scripts/build_destination_index.py
 ```
 
 See [Indexing](indexing.md) for full details.
@@ -92,11 +92,18 @@ See [Indexing](indexing.md) for full details.
 4. Check the post has readable content (not empty)
 
 **`attach` fails with auth error**
-1. Verify `WP_USER` and `WP_PASSWORD` in `.env`
+1. Verify the selected site's username and application-password variables in `.env`
 2. Verify the Application Password is still active in WordPress admin
 3. Verify the user has Editor permissions
 
 **`plan` returns candidates but `process` rejects all**
 - Quality gate is blocking — images are blurry or wrong aspect ratio
-- Try `--source unsplash` for a different pool of candidates
-- Lower `MIN_QUALITY_SCORE` in the site profile temporarily
+- Inspect the planned heading and candidate evidence before changing sources
+- Do not lower the quality or semantic gate to force an attachment
+
+## Financial Controls & Limits
+
+`fast_scan.py` defaults to 1,350 completed scans per calendar day. Set
+`PICTOVA_VISION_DAILY_LIMIT` or pass `--daily-limit` for a different explicit
+limit. A value of zero disables the guard and should only be used for an
+observed run.

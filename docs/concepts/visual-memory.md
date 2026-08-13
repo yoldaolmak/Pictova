@@ -18,9 +18,10 @@ Each record in the `asset_index` table represents one image and stores:
 | `country` | Country |
 | `activity` | Activity detected (hiking, dining, etc.) |
 | `scene` | Scene type (landscape, street, interior, etc.) |
-| `quality_score` | Composite score: sharpness, exposure, composition |
-| `face_count` | Number of faces detected (Apple ML) |
-| `blur_score` | Apple Photos blur indicator |
+| `quality_score` | Source-quality signal used for ranking |
+| `apple_labels_json` | Labels supplied by Apple Photos, when available |
+| `people_json` | People metadata supplied by Apple Photos, when available |
+| `is_personal` / `is_video` | Safety flags that make an asset ineligible for normal selection |
 
 ## Why It Exists
 
@@ -30,30 +31,31 @@ Mac Photos stores originals with UUID-based paths that change across devices and
 
 Visual Memory operates across two runtimes:
 
-**Index Runtime** (separate, in `/Users/yoldaolmak/Downloads/YO_OS_VIL`):
-- Scans Photos originals
-- Applies quality gate
-- Reads Apple Photos `.sqlite` for ML metadata
-- Writes to `visual_memory.db`
+**Index runtime** (`scripts/` in this repository):
+- Scans Photos or local archives
+- Writes the local `visual_memory.db`
+- Optionally enriches it with Apple Photos metadata
 
-**Consumer Runtime** (this repo, Pictova):
+**Consumer runtime** (the Pictova engine):
 - Reads `visual_memory.db` via `YO_VISUAL_MEMORY_DB`
-- Uses the index for semantic selection
-- Never writes to the index
+- Uses it only for semantic selection
+- Never modifies the Photos library itself
 
-This separation keeps the indexer and the selection engine independently deployable.
+The index is local runtime state and is intentionally excluded from Git.
 
 ## Indexing
 
 ```bash
-cd /path/to/YO_OS_VIL
-./.venv/bin/python index_memory_daily.py --mode photos --daily-limit 0
-./.venv/bin/python extract_apple_photos_ml.py
+python3 scripts/index_turkey_photos.py
+python3 scripts/rebuild_fts.py
+python3 scripts/build_destination_index.py
 ```
 
-The first command discovers and quality-gates originals. The second enriches indexed records with Apple ML metadata (moment, location, faces, blur/exposure scores).
+The first command adds Mac Photos assets and marks personal or video items as
+non-selectable. The latter commands rebuild lookup indexes. Run these only from
+an explicitly supervised terminal session; they touch the local index, not WordPress.
 
-Run both after importing new photos or on a daily schedule.
+Run all three after importing new photos or on a daily schedule.
 
 See: [Indexing Ops Guide](../ops/indexing.md)
 

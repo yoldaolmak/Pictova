@@ -6,14 +6,18 @@ document = city + state_province + country + location + keywords + ai_keywords +
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
+import sys
 from pathlib import Path
 
-DB_PATH = Path(os.environ.get(
-    "YO_VISUAL_MEMORY_DB",
-    "/Users/yoldaolmak/Downloads/YO_OS_VIL/data/visual_memory.db",
-))
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.utils.config import get_visual_memory_db_path
+
+
+DB_PATH = get_visual_memory_db_path()
 
 
 def _build_doc(row: sqlite3.Row) -> str:
@@ -24,7 +28,7 @@ def _build_doc(row: sqlite3.Row) -> str:
         if v:
             parts.append(str(v))
 
-    for json_col in ("ai_keywords_json", "metadata_keywords_json"):
+    for json_col in ("ai_keywords_json", "metadata_keywords_json", "apple_labels_json"):
         raw = row[json_col]
         if raw:
             try:
@@ -54,7 +58,7 @@ def main():
     rows = con.execute("""
         SELECT source_id, city, state_province, sub_admin_area, country, location,
                scene, activity, summary, title, description,
-               ai_keywords_json, metadata_keywords_json
+               ai_keywords_json, metadata_keywords_json, apple_labels_json
         FROM asset_index
     """).fetchall()
 

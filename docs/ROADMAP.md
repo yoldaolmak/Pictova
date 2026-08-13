@@ -17,7 +17,7 @@ Pictova, içerik odaklı görsel otomasyonunda endüstri standardı olmayı hede
 ## 🚀 Phase 2: Premium Features & Stock Integrations (Q4)
 **Hedef:** Ticari (lisanslı) stok sitelerinin entegrasyonu ve kalite standartlarının artırılması.
 
-- [ ] **Pictova Depot (DepositPhotos API):** Semantic search veya Unsplash yetersiz kaldığında lisanslı stok kütüphanelerinden otomatik satın alım ve indirme.
+- [x] **Pictova Depot (DepositPhotos API):** Semantic search veya Unsplash yetersiz kaldığında lisanslı stok kütüphanelerinden otomatik lisanslı indirme.
 - [ ] **Advanced Quality Gate:** İndirilen resimlerde bulanıklık (blur), çözünürlük veya içerik kalitesi tespiti yaparak düşük kaliteli resimleri eleme sistemi.
 - [ ] **WebP Optimization V2:** %100 kayıpsız (lossless) sıkıştırma algoritmalarının entegrasyonu ve EXIF verilerinin tam kontrolü.
 

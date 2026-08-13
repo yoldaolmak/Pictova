@@ -34,7 +34,8 @@ Use this to verify the selection logic before spending time on processing.
 
 ### 3. process
 
-Downloads and processes the selected images — resizing, format conversion, watermark removal — without publishing to WordPress.
+Downloads and processes the selected images — resizing and format conversion —
+without publishing to WordPress.
 
 ```bash
 pictova process --site yoldaolmak --post 265713 --count 4 --people-first

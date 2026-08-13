@@ -42,11 +42,11 @@ Business logic. No I/O here except through injected providers.
 
 | Module | Responsibility |
 |--------|---------------|
-| `selector.py` | Query sources, score candidates, build ranked list |
+| `selector.py` | Query sources, enforce exact anchors, and build ranked candidates |
 | `processor.py` | Download, resize, convert, watermark-strip |
 | `quality.py` | Score-based gate: reject blurry, over/underexposed, wrong aspect |
-| `metadata.py` | Generate alt text, captions, titles from context + vision AI |
-| `publisher.py` | Upload to WordPress media library, build Gutenberg blocks |
+| `metadata.py` | Generate evidence-based alt text and concise editorial metadata |
+| `publisher.py` | Prepare validated media for WordPress publishing |
 | `gallery.py` | Native gallery block construction |
 | `attach.py` | Pipeline orchestration: ties all engine modules together |
 
@@ -56,9 +56,10 @@ External I/O adapters. One per source or destination.
 
 | Module | Interface |
 |--------|-----------|
-| `wordpress.py` | Read post, upload media, update post content |
+| `wordpress.py` | Read post context and resolve the supported site |
 
-Additional providers (Unsplash, DepositPhotos) are configured via the legacy core or planned for native implementation.
+Native providers include DepositPhotos and Wikimedia; free-source fallback is
+subject to the same exact-match gate as local candidates.
 
 ## Profiles (`src/pictova/profiles/`)
 

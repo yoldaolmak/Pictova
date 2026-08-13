@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Fixed
+- Consolidated Photos indexing and Vision scanning under bounded `scripts/` entry points.
+- Removed unsupported direct WordPress and DepositPhotos operations outside the native Pictova pipeline.
+- Added strict local-runtime ignores for Photos indexes, provider caches, manifests, and agent artifacts.
+
 ### Changed
 - Renamed package from `vil` → `pictova` across all modules, CLI, and pyproject.toml
 - Removed AI agent coordination files (`AI_COORDINATION.md`, `QWEN_STATUS.md`)

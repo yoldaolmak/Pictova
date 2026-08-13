@@ -14,7 +14,15 @@ node_modules/
 *.tmp
 *.swp
 data/operation_receipts/
-data/deposit_cache/discovery/
+# Runtime visual-memory state. These files may contain licensed-provider
+# downloads or a local Photos index and must never be committed by accident.
+data/attach_locks/
+data/deposit_cache/
+data/destination_index.json
+data/post_media_manifests/
+data/visual_memory.db
+data/visual_memory.db-*
+data/wikimedia_cache/
 
 # Environment
 .env
@@ -49,6 +57,11 @@ build/
 
 # Ham yerleşim taraması (yayın içeriği, büyük) — özeti data/placement_profile.json
 data/placement_behavior.json
+
+# Local agent/index artifacts
+.codebase-memory/
+MEMORY.md
+.pytest_cache/
 
 # macOS
 .DS_Store

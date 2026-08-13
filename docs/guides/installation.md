@@ -5,7 +5,7 @@ Full setup guide covering all Pictova components.
 ## System Requirements
 
 - macOS or Linux
-- Python 3.9 or higher
+- Python 3.10 or higher
 - WordPress 5.8+ with Application Passwords enabled
 - (Optional) Mac Photos library for visual memory
 
@@ -32,6 +32,12 @@ pip install -e .
 
 The `-e` flag installs Pictova in editable mode and registers the `pictova` CLI command.
 
+On macOS, install Photos-library support only if you will index Mac Photos:
+
+```bash
+pip install -e '.[macos]'
+```
+
 ## Step 4: Configure Environment
 
 ```bash
@@ -41,9 +47,9 @@ cp .env.example .env
 ### Minimum Configuration
 
 ```bash
-# WordPress — required for attach
+# WordPress — required for the yoldaolmak profile
 WP_USER=your-wordpress-username
-WP_PASSWORD=your-app-password
+WP_APP_PASSWORD=your-app-password
 
 # At least one image source
 UNSPLASH_ACCESS_KEY=your-unsplash-key
@@ -64,10 +70,10 @@ pictova health
 ```
 
 ```bash
-python3 -m pytest -q
+python3.10 -m pytest -q
 ```
 
-Expected: `19 passed, 1 warning` (or better).
+Expected: all tests pass.
 
 ## Optional: Mac Photos Visual Memory
 
@@ -78,7 +84,7 @@ See [Mac Photos Setup](mac-photos-setup.md) for the full guide.
 Once indexed, add to `.env`:
 
 ```bash
-YO_VISUAL_MEMORY_DB=/path/to/YO_OS_VIL/data/visual_memory.db
+YO_VISUAL_MEMORY_DB=/Users/yoldaolmak/Projects/Pictova/data/visual_memory.db
 ```
 
 ## Optional: HTTP Service
@@ -97,7 +103,9 @@ See [HTTP API Reference](../reference/http-api.md) for endpoint documentation.
 Make sure your virtualenv is active and you ran `pip install -e .`.
 
 **`review` returns an auth error**  
-Verify `WP_USER` and `WP_PASSWORD`. Application Password format: `xxxx xxxx xxxx xxxx xxxx xxxx`.
+Verify `WP_USER` and `WP_APP_PASSWORD`. Application Password format: `xxxx xxxx xxxx xxxx xxxx xxxx`.
 
 **`plan` returns empty candidates**  
-Either `UNSPLASH_ACCESS_KEY` is missing, or `YO_VISUAL_MEMORY_DB` points to an empty or nonexistent database. Run `pictova health` and check the output for source status.
+Either the selected provider is not configured, or `YO_VISUAL_MEMORY_DB` points
+to an empty/nonexistent database. Run `pictova health` and inspect the returned
+source status.

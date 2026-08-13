@@ -2,7 +2,12 @@
 name = "pictova"
 version = "0.1.0"
 description = "Visual intelligence layer — finds, selects, and places images from any source into WordPress and beyond."
-requires-python = ">=3.9"
+requires-python = ">=3.10"
+
+[project.optional-dependencies]
+macos = [
+    "osxphotos>=0.76; sys_platform == 'darwin'",
+]
 
 [project.scripts]
 pictova = "src.pictova.app.cli:main"

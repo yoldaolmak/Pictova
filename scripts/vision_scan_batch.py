@@ -1,164 +1,19 @@
 #!/usr/bin/env python3
-"""Pictova — Lokal fotoğraflara toplu vision scan.
+"""Deprecated compatibility entry point for the bounded parallel Vision scanner.
 
-Sadece source_path dolu (lokal mevcut) ve vision_scan_status='pending' kayıtları işler.
-Vision chain (Gemini→Codex→Claude) ile ai_keywords, scene, activity alanlarını doldurur.
+Use ``python3 scripts/fast_scan.py`` for new automation. Keeping this thin
+wrapper avoids two divergent scan implementations and preserves old commands.
 """
 from __future__ import annotations
 
-import json
-import os
-import sqlite3
 import sys
-import time
 from pathlib import Path
 
-# Proje root'unu path'e ekle
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-from pictova.engine.vision_chain import analyze_image_vision_chain, has_any_vision_source
-
-DB_PATH = Path(os.environ.get(
-    "YO_VISUAL_MEMORY_DB",
-    "/Users/yoldaolmak/Downloads/YO_OS_VIL/data/visual_memory.db",
-))
-
-UPDATE_SQL = """
-UPDATE asset_index SET
-    ai_keywords_json     = :ai_keywords_json,
-    scene                = :scene,
-    activity             = :activity,
-    summary              = :summary,
-    vision_scan_status   = 'done',
-    vision_last_scanned_at = :scanned_at,
-    vision_last_error    = NULL
-WHERE source_id = :source_id
-"""
-
-ERROR_SQL = """
-UPDATE asset_index SET
-    vision_scan_status = 'error',
-    vision_last_error  = :error,
-    vision_last_scanned_at = :scanned_at
-WHERE source_id = :source_id
-"""
-
-
-def _extract_scene_activity(keywords: list[str]) -> tuple[str, str]:
-    """keyword listesinden scene ve activity tahmin et."""
-    scene_words = {"coast", "beach", "mountain", "forest", "city", "urban", "rural",
-                   "sea", "lake", "river", "valley", "castle", "mosque", "church",
-                   "market", "bazaar", "harbor", "port", "ruins", "landscape", "nature"}
-    activity_words = {"walking", "hiking", "swimming", "sailing", "photography",
-                      "tourism", "travel", "dining", "shopping", "sightseeing"}
-    kw_lower = {k.lower() for k in keywords}
-    scene = next((w for w in kw_lower if w in scene_words), "general")
-    activity = next((w for w in kw_lower if w in activity_words), "travel")
-    return scene, activity
-
-
-def main():
-    if not has_any_vision_source():
-        print("❌ Vision kaynağı yok. GEMINI_API_KEY ekle veya codex/claude oturumu aç.", file=sys.stderr)
-        sys.exit(1)
-
-    con = sqlite3.connect(str(DB_PATH))
-    con.row_factory = sqlite3.Row
-
-    rows = con.execute("""
-        SELECT source_id, source_path, city, state_province, country, filename
-        FROM asset_index
-        WHERE vision_scan_status = 'pending'
-          AND source_path != ''
-          AND source_path IS NOT NULL
-        ORDER BY quality_score DESC
-    """).fetchall()
-
-    total = len(rows)
-    print(f"🔍 {total} lokal fotoğraf vision scan bekliyor")
-
-    if total == 0:
-        print("✅ Tümü taranmış.")
-        con.close()
-        return
-
-    done = errors = 0
-    for i, row in enumerate(rows):
-        src = row["source_path"]
-        uid = row["source_id"]
-        city = row["city"] or row["state_province"] or row["country"] or ""
-
-        # Dosya hâlâ mevcut mu?
-        if not Path(src).exists():
-            con.execute(ERROR_SQL, {
-                "source_id": uid,
-                "error": "file_not_found",
-                "scanned_at": _now(),
-            })
-            con.commit()
-            errors += 1
-            continue
-
-        post_ctx = {"title": city, "slug": city.lower().replace(" ", "-")}
-        try:
-            result = analyze_image_vision_chain(
-                src,
-                location_hint=city,
-                post_context=post_ctx,
-            )
-        except RuntimeError as exc:
-            con.execute(ERROR_SQL, {
-                "source_id": uid,
-                "error": str(exc)[:500],
-                "scanned_at": _now(),
-            })
-            con.commit()
-            errors += 1
-            print(f"  ✗ [{i+1}/{total}] {row['filename']}: {exc}", file=sys.stderr)
-            continue
-
-        keywords = result.get("keywords") or []
-        alt = result.get("alt") or ""
-        caption = result.get("caption") or ""
-        scene, activity = _extract_scene_activity(keywords)
-        summary = alt or caption
-
-        con.execute(UPDATE_SQL, {
-            "source_id": uid,
-            "ai_keywords_json": json.dumps(keywords, ensure_ascii=False),
-            "scene": scene,
-            "activity": activity,
-            "summary": summary,
-            "scanned_at": _now(),
-        })
-        con.commit()
-        done += 1
-
-        source = result.get("source", "?")
-        print(f"  ✓ [{i+1}/{total}] {row['filename']} ({source}) → {keywords[:4]}")
-
-        # Codex yavaş — rate limit yok ama biraz bekleyelim
-        if source == "codex_cli":
-            time.sleep(2)
-
-    con.close()
-    print(f"\n✅ Tamamlandı: {done} tarandı, {errors} hata")
-
-    if done > 0:
-        print("\n🔄 FTS indeksi yeniden oluşturuluyor...")
-        import importlib.util, pathlib
-        spec = importlib.util.spec_from_file_location(
-            "rebuild_fts",
-            str(Path(__file__).parent / "rebuild_fts.py"),
-        )
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        mod.main()
-
-
-def _now() -> str:
-    from datetime import datetime, timezone
-    return datetime.now(timezone.utc).isoformat()
+from scripts.fast_scan import main
 
 
 if __name__ == "__main__":

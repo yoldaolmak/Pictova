@@ -4,7 +4,7 @@ Get your first image attached to a WordPress post in 5 minutes.
 
 ## Prerequisites
 
-- Python 3.9+
+- Python 3.10+
 - A WordPress site with Application Passwords enabled
 - An Unsplash developer account (free tier works)
 
@@ -30,7 +30,7 @@ Open `.env` and fill in the minimum required fields:
 ```bash
 # WordPress
 WP_USER=your-wp-username
-WP_PASSWORD=your-app-password        # Settings → Application Passwords
+WP_APP_PASSWORD=your-app-password    # Settings → Application Passwords
 
 # Image source (at least one)
 UNSPLASH_ACCESS_KEY=your-unsplash-key

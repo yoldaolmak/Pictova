@@ -1,75 +1,22 @@
-# Site Profiles
+# Site Configuration
 
-A site profile bundles per-site configuration: WordPress URL, default behavior, source priorities, and block placement rules.
+The supported WordPress sites are defined by the adapter’s configured endpoint
+names:
 
-## Location
+| CLI value | Environment prefix |
+|---|---|
+| `yoldaolmak` | `WP_` |
+| `gezievreni` | `GEZIEVRENI_` |
+| `gezgindunyasi` | `GEZGINDUNYASI_` |
+| `auto` | Resolves a post across the configured sites, fail-closed on ambiguity |
 
-Profiles live in `src/pictova/profiles/`. The active profile is selected via `--site <name>`.
+The native engine applies shared selection, metadata, and placement policy to
+all sites. A new site requires an explicit adapter configuration and tests for
+credentials, post resolution, and managed-media writes; it is not enabled by
+adding an untested Python profile file.
 
-```
-src/pictova/profiles/
-  __init__.py
-  yoldaolmak.py     ← yoldaolmak.com profile
-  mysite.py         ← add yours here
-```
-
-## Profile Schema
-
-```python
-# src/pictova/profiles/mysite.py
-
-SITE_URL = "https://mysite.com"
-WP_PATH = "/home/myuser/public_html"   # for wp-cli on server
-
-# Selection defaults
-DEFAULT_COUNT = 4
-PEOPLE_FIRST = False
-SOURCE_PRIORITY = ["semantic", "unsplash"]
-MIN_QUALITY_SCORE = 0.6
-
-# Processing
-TARGET_WIDTH = 1200
-TARGET_HEIGHT = 800
-OUTPUT_FORMAT = "webp"
-
-# WordPress placement
-BLOCK_TYPE = "image"           # "image" or "gallery"
-SET_FEATURED_IMAGE = True
-INSERT_POSITION = "after_intro"   # "after_intro", "distributed", "end"
-```
-
-## The yoldaolmak Profile
-
-The active profile for yoldaolmak.com is optimized for Turkish travel content:
-
-- Source priority: Visual Memory first (personal library), Unsplash fallback
-- People first: enabled (travel content benefits from human subjects)
-- Insert position: distributed through post body
-- Featured image: enabled
-- Output format: WebP with JPEG fallback
-
-## Insert Positions
-
-| Value | Behavior |
-|-------|----------|
-| `after_intro` | Place all images after the first H2 |
-| `distributed` | Distribute images evenly through H2 sections |
-| `end` | Place all images at the end of the post |
-| `manual` | Return processed images without inserting (for custom pipelines) |
-
-## Using a Profile
+Use an explicit site for production operations whenever possible:
 
 ```bash
-# CLI
-pictova attach --site mysite --post 265713
-
-# HTTP
-curl -X POST http://127.0.0.1:8040/attach \
-  -d '{"site":"mysite","post_id":265713}'
+pictova plan --site gezievreni --post 173613 --count 4
 ```
-
-## Creating a Profile
-
-1. Copy `src/pictova/profiles/yoldaolmak.py` to `src/pictova/profiles/mysite.py`
-2. Update `SITE_URL`, `WP_PATH`, and any behavioral defaults
-3. Use `--site mysite` in commands

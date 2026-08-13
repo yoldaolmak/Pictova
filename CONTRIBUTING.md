@@ -12,31 +12,31 @@ All code and documentation must use **Pictova** as the product name, `pictova` a
 
 ## Adding a Feature
 
-1. Update `QWEN_STATUS.md` — wait, that file is gone. Instead: update `CHANGELOG.md` under `[Unreleased]`
+1. Update `CHANGELOG.md` under `[Unreleased]` when the change is user-visible
 2. Write or update tests in `tests/`
-3. Run `python3 -m pytest -q` — all must pass
+3. Run `python3.10 -m pytest -q` — all must pass
 4. Update relevant `docs/` page
 
 ## Adding an Image Source
 
 1. Implement `src/pictova/providers/mysource.py` — see [Adding Sources](docs/guides/adding-sources.md)
-2. Register in `src/pictova/config.py`
-3. Add to a site profile's `source_priority`
-4. Add a section to `docs/guides/adding-sources.md` and `docs/concepts/sources.md`
+2. Register the provider in the native selector/provider boundary
+3. Add focused tests that prove strict matching and fail-closed behavior
+4. Update `docs/guides/adding-sources.md` and `docs/concepts/sources.md`
 
 ## Architecture Rules
 
-- App layer (`src/pictova/app/`) contains no business logic
-- Engine layer (`src/pictova/engine/`) performs no direct I/O — use injected providers
-- Do not add new code to `src/core/` or `src/main.py` — migrate into `src/pictova/engine/` instead
-- Do not delete legacy modules if anything still imports them
+- App layer (`src/pictova/app/`) contains no selection or publishing policy
+- Native engine and providers own the supported production path
+- New behavior must not bypass Pictova through one-off WordPress or provider scripts
+- Do not add new code to `src/core/` or `src/main.py`; migrate it into `src/pictova/engine/` instead
 
 ## Testing
 
 ```bash
-python3 -m pytest -q              # run all tests
-python3 -m pytest tests/unit/     # unit only
-python3 -m pytest tests/integration/  # integration only
+python3.10 -m pytest -q              # run all tests
+python3.10 -m pytest tests/unit/     # unit only
+python3.10 -m pytest tests/integration/  # integration only
 ```
 
 Integration tests require no WordPress credentials — they test the CLI contract with structured failure responses.

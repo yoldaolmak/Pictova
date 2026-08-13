@@ -24,9 +24,7 @@
     <key>EnvironmentVariables</key>
     <dict>
         <key>PYTHONPATH</key>
-        <string>/Users/yoldaolmak/Projects/Pictova/src</string>
-        <key>YO_VISUAL_MEMORY_DB</key>
-        <string>/Users/yoldaolmak/Downloads/YO_OS_VIL/data/visual_memory.db</string>
+        <string>/Users/yoldaolmak/Projects/Pictova</string>
     </dict>
 
     <key>RunAtLoad</key>

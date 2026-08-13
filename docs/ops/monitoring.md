@@ -11,7 +11,8 @@ pictova health
 curl -s http://127.0.0.1:8040/health
 ```
 
-Expected: `{"status":"ok","service":"pictova"}`
+The result reports configuration, WordPress readiness, provider availability
+and local-index status. It does not publish or upload media.
 
 If this fails: check that `pictova serve` is running and the port is correct.
 
@@ -28,7 +29,7 @@ PY
 ## Test Suite
 
 ```bash
-python3 -m pytest -q
+python3.10 -m pytest -q
 ```
 
 Run after any code change. All tests should pass. A failing test in CI means something in the engine contract changed.
@@ -41,30 +42,18 @@ curl -s http://127.0.0.1:8040/jobs | python3 -m json.tool
 
 Check for jobs stuck in `running` state for more than 5 minutes — this indicates a processing hang.
 
-## Ops Health Script
-
-```bash
-python3 ops/yoos_vil_health.py
-```
-
-This script checks:
-- Import paths
-- Visual memory DB connectivity
-- WordPress credential format validity
-- Source driver availability
-
 ## What to Watch
 
 | Signal | Normal | Investigate if |
 |--------|--------|----------------|
-| `attach` duration | 2–8 seconds | > 30 seconds |
-| Quality gate rejection rate | 0–30% | > 70% consistently |
+| `attach` result | `success` or intentional `no_candidates` | raw exception or partial upload |
+| Quality gate rejection rate | reported in receipt | unexpected generic fallback |
 | Visual memory query results | ≥ 3 for any Turkish city | 0 for major cities |
 | Test suite | All passed | Any failure |
 
 ## Logs
 
-Pictova does not write structured logs yet (planned in Milestone A). Current output goes to stdout/stderr. Capture with:
+Pictova returns structured JSON on stdout. Capture a receipt with:
 
 ```bash
 pictova attach --site yoldaolmak --post 265713 2>&1 | tee /tmp/pictova-run.log

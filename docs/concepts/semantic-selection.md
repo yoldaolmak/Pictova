@@ -1,64 +1,32 @@
 # Semantic Selection
 
-Semantic selection is the process by which Pictova decides which images fit a given post.
+Semantic selection answers a narrow question: can this image support this post
+or this heading without inventing a relationship that the visual evidence does
+not establish?
 
-## The Core Problem
+## Evidence before ranking
 
-A travel post about Sinop should get photos of Sinop — its harbor, its castle, its fish market. A post about packing light should get photos of backpacks and organized luggage, not tourist landmarks. This requires understanding the post's content, not just its title.
+Pictova derives post context, H2/H3 headings, and specific anchors such as a
+place or named app. It then searches source evidence: local index fields,
+provider title/tags, and visual metadata when available.
 
-## How It Works
+For a concrete heading, one compatible exact candidate is better than several
+loosely related candidates. If a required anchor cannot be established, the
+selector returns fewer files and explains the failure. It never fills the gap
+with the first generic image from the same broad category.
 
-### Step 1: Context Derivation
+## Heading-aware placement
 
-Pictova reads the post from WordPress (title, excerpt, content, categories, tags) and derives a semantic context object:
+When a post contains eligible H2/H3 sections, candidates are selected per
+heading. Existing images are respected, and numbered “places to visit” sections
+are preferred when measured editorial placement data supports them. A gallery
+is formed only where the placement policy deliberately groups images.
 
-- **Location query**: city, country, or region name extracted from content
-- **Topic query**: the subject matter of the post (food, gear, architecture, etc.)
-- **Activity hints**: verbs and activity keywords detected in the body
-- **People first**: whether the post benefits from human subjects in images
-
-### Step 2: Query Construction
-
-The context becomes a multi-field query against the visual memory index. Pictova scores each asset across:
-
-- `location`, `city`, `country` — geographic match
-- `activity`, `scene` — contextual match
-- `title`, `description`, `summary` — semantic text match
-- `filename` — fallback keyword match
-
-Assets are scored, not filtered. A photo of Sinop harbor taken from a boat scores higher than a generic harbor photo, which scores higher than an unrelated landscape.
-
-### Step 3: Quality Gate
-
-Scores are adjusted by the quality gate (`src/pictova/engine/quality.py`):
-
-- Images below the blur threshold are penalized
-- Images below the exposure threshold are penalized
-- Face count is used when `--people-first` is active (images with faces rank higher)
-- Aspect ratio is checked against target block dimensions
-
-### Step 4: Deduplication and Ranking
-
-Across multiple sources (Visual Memory, Unsplash, local), candidates are merged, duplicates removed by hash, and the final ranking produced. The top `--count` images pass to the processor.
-
-## Inspecting Selection
-
-Use `pictova plan` to see what would be selected without committing to attach:
+## Inspecting a decision
 
 ```bash
-pictova plan --site yoldaolmak --post 265713 --count 4 --people-first
+pictova plan --site yoldaolmak --post 265713 --count 4 --source auto
 ```
 
-The output shows each candidate, its source, its score, and the reason it was selected.
-
-## Tuning Selection
-
-Selection behavior is controlled by the site profile (`src/pictova/profiles/yoldaolmak.py`). Profile fields that affect selection:
-
-| Field | Effect |
-|-------|--------|
-| `default_count` | Images per post when `--count` is omitted |
-| `people_first` | Default people preference |
-| `source_priority` | Ordered list of sources to query |
-| `min_quality_score` | Quality gate threshold |
-| `aspect_ratio` | Target ratio for block placement |
+The JSON result includes selected files, heading assignments, provider
+diagnostics, and warnings. It is the first step before an attach run.

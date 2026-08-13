@@ -1,20 +1,23 @@
-#!/usr/bin/env python3.11
+#!/usr/bin/env python3
 """Pictova — Ülke bazlı fotoğraf indeksleyici.
 
 TR dışındaki ülkeler için. Kişisel albümleri hariç tutar.
-Kullanım: python3.11 scripts/index_country_photos.py --country IT --limit 5000
+Kullanım: python3 scripts/index_country_photos.py --country IT --limit 5000
 """
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import sqlite3
 import sys
-from datetime import datetime
 from pathlib import Path
+from typing import Any
 
-import osxphotos
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.utils.config import get_visual_memory_db_path
 
 # ── Sabitler ─────────────────────────────────────────────────────────────────
 
@@ -24,10 +27,7 @@ EXCLUDE_ALBUMS = {
     "Instagram", "Twitter", "WhatsApp", "InShot", "Import",
 }
 
-DB_PATH = Path(os.environ.get(
-    "YO_VISUAL_MEMORY_DB",
-    "/Users/yoldaolmak/Downloads/YO_OS_VIL/data/visual_memory.db",
-))
+DB_PATH = get_visual_memory_db_path()
 
 UPSERT_SQL = """
 INSERT INTO asset_index (
@@ -40,7 +40,7 @@ INSERT INTO asset_index (
     summary, scene, location, activity,
     objects_json, ai_keywords_json, places_json, people_json, story_tags_json,
     capture_context, exif_metadata_json, raw_metadata_json,
-    state_province, sub_admin_area
+    state_province, sub_admin_area, apple_labels_json
 ) VALUES (
     :source_id, 'mac_photos', :source_path, :folder_path, :filename, :file_extension,
     '', :width, :height, :created_at, :camera_make, :camera_model,
@@ -51,7 +51,7 @@ INSERT INTO asset_index (
     '', '', :location, '',
     '[]', '[]', '[]', '[]', '[]',
     '', '{}', '{}',
-    :state_province, :sub_admin
+    :state_province, :sub_admin, :apple_labels_json
 )
 ON CONFLICT(source_id) DO UPDATE SET
     source_path = excluded.source_path,
@@ -63,11 +63,39 @@ ON CONFLICT(source_id) DO UPDATE SET
     width = excluded.width,
     height = excluded.height,
     state_province = excluded.state_province,
-    sub_admin_area = excluded.sub_admin_area;
+    sub_admin_area = excluded.sub_admin_area,
+    apple_labels_json = excluded.apple_labels_json;
 """
 
 
-def _quality(photo: osxphotos.PhotoInfo) -> float:
+MIGRATE_COLUMNS = (
+    "ALTER TABLE asset_index ADD COLUMN state_province TEXT",
+    "ALTER TABLE asset_index ADD COLUMN sub_admin_area TEXT",
+    "ALTER TABLE asset_index ADD COLUMN apple_labels_json TEXT NOT NULL DEFAULT '[]'",
+)
+
+
+def _apply_migrations(con: sqlite3.Connection) -> None:
+    for migration in MIGRATE_COLUMNS:
+        try:
+            con.execute(migration)
+        except sqlite3.OperationalError as exc:
+            if "duplicate column name" not in str(exc).lower():
+                raise
+
+
+def _photos_db() -> Any:
+    """Load the optional macOS Photos dependency only for an actual scan."""
+    if sys.version_info < (3, 10):
+        raise RuntimeError("Mac Photos indeksleme Python 3.10+ gerektirir")
+    try:
+        import osxphotos
+    except ImportError as exc:
+        raise RuntimeError("Mac Photos indeksleme için `pip install '.[macos]'` çalıştırın") from exc
+    return osxphotos.PhotosDB()
+
+
+def _quality(photo: Any) -> float:
     score = 0.5
     if photo.width and photo.height:
         mp = (photo.width * photo.height) / 1_000_000
@@ -91,12 +119,12 @@ def main():
 
     country_code = args.country.upper()
     print(f"📸 Photos Library yükleniyor (hedef: {country_code})...")
-    db_photos = osxphotos.PhotosDB()
+    db_photos = _photos_db()
     all_photos = db_photos.photos(movies=False)
     print(f"   Toplam: {len(all_photos):,} fotoğraf")
 
     con = sqlite3.connect(str(DB_PATH))
-    # asset_index tablosu zaten mevcut (index_turkey_photos.py tarafından oluşturuldu)
+    _apply_migrations(con)
 
     included = skipped = errors = 0
     processed = 0
@@ -168,6 +196,7 @@ def main():
             "location": location_str,
             "state_province": state_province,
             "sub_admin": sub_admin,
+            "apple_labels_json": json.dumps(getattr(photo, "labels", None) or [], ensure_ascii=False),
         }
         try:
             con.execute(UPSERT_SQL, row)
