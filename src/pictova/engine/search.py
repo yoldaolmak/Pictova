@@ -310,8 +310,6 @@ def search_semantic_assets(
     content_filter: "insan", "sokak", "mimari" vb. — None = filtre yok
     Döndürür: mevcut dosya path'lerinin listesi
     """
-    import sqlite3
-
     db_path = get_visual_memory_db_path()
     if not db_path.exists():
         return []
