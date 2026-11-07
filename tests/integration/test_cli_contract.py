@@ -540,10 +540,16 @@ def http_auth(monkeypatch):
     return {"Authorization": "Bearer " + token}
 
 
-def test_http_server_health_route_returns_json(http_auth):
-    from src.pictova.app.server import serve
+def test_http_server_health_route_returns_json(http_auth, monkeypatch):
+    from src.pictova.app import server as server_module
 
-    server = serve(host="127.0.0.1", port=0)
+    # Health tests must never contact configured real WordPress sites.
+    monkeypatch.setattr(
+        server_module,
+        "health_status",
+        lambda: {"status": "ok", "modules": [{"module": "PIL", "status": "ok"}]},
+    )
+    server = server_module.serve(host="127.0.0.1", port=0)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
