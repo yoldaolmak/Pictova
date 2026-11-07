@@ -92,8 +92,10 @@ def _resolve_wordpress_url(url: str) -> tuple[str, int, Dict[str, Any]]:
     endpoint = uploader.base_url.rstrip("/") + "/wp-json/wp/v2/posts"
     try:
         response = uploader.session.get(
-            endpoint, params={"slug": slug, "context": "edit", "per_page": 3},
-            timeout=20, allow_redirects=False,
+            endpoint,
+            params={"slug": slug, "context": "edit", "per_page": 3},
+            timeout=20,
+            allow_redirects=False,
         )
         if response.status_code != 200:
             raise StudioError("WordPress yazı kimliği okunamadı")
@@ -200,18 +202,20 @@ class StudioPlans:
 
             entry["enabled"] = not bool(reason) and bool(preview_url)
             candidates[asset_id] = entry
-            visible.append({
-                "id": asset_id,
-                "heading": heading_key[0],
-                "level": heading_key[1],
-                "source": kind,
-                "title": title or "Görsel",
-                "preview_url": preview_url if kind == "deposit" else "",
-                "local_preview": kind == "local" and entry["enabled"],
-                "available": entry["enabled"],
-                "reason": reason,
-                "paid": kind == "deposit",
-            })
+            visible.append(
+                {
+                    "id": asset_id,
+                    "heading": heading_key[0],
+                    "level": heading_key[1],
+                    "source": kind,
+                    "title": title or "Görsel",
+                    "preview_url": preview_url if kind == "deposit" else "",
+                    "local_preview": kind == "local" and entry["enabled"],
+                    "available": entry["enabled"],
+                    "reason": reason,
+                    "paid": kind == "deposit",
+                }
+            )
 
         with self._lock:
             self._prune()
@@ -284,9 +288,15 @@ class StudioPlans:
             "digest": plan["digest"],
             "chosen": chosen,
         }
-        job = job_registry.create_job(kind="studio_attach", payload={
-            "site": work["site"], "post_id": work["post_id"], "selected_count": len(chosen),
-        }, runner=lambda _payload: self._execute(work))
+        job = job_registry.create_job(
+            kind="studio_attach",
+            payload={
+                "site": work["site"],
+                "post_id": work["post_id"],
+                "selected_count": len(chosen),
+            },
+            runner=lambda _payload: self._execute(work),
+        )
         return {"status": "accepted", "job_id": job["job_id"], "selected_count": len(chosen)}
 
     @staticmethod
@@ -294,7 +304,11 @@ class StudioPlans:
         site, post_id = work["site"], work["post_id"]
         try:
             request, context, constraints = prepare_attach_request(
-                site=site, post_id=post_id, source="auto", count=len(work["chosen"]), engine="native",
+                site=site,
+                post_id=post_id,
+                source="auto",
+                count=len(work["chosen"]),
+                engine="native",
             )
             failure = validate_attach_request(site=site, request=request, post_context=context, constraints=constraints)
             if failure:
@@ -324,13 +338,20 @@ class StudioPlans:
                 return {"source": "studio", "files": files, "heading_assignments": assignments, "warnings": []}
 
             result = execute_native_attach(
-                site=site, request=request, post_context=context, constraints=constraints,
-                selection_loader=chosen_selection, expected_post_digest=work["digest"],
+                site=site,
+                request=request,
+                post_context=context,
+                constraints=constraints,
+                selection_loader=chosen_selection,
+                expected_post_digest=work["digest"],
             )
             return _finish_attach_job(result)
         except Exception as exc:
             return {
-                "command": "attach", "status": "failed", "site": site, "post_id": post_id,
+                "command": "attach",
+                "status": "failed",
+                "site": site,
+                "post_id": post_id,
                 "warnings": [f"Studio execution rejected: {type(exc).__name__}"],
             }
 

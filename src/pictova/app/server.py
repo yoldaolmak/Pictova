@@ -229,7 +229,8 @@ def build_handler(*, token: str) -> type[BaseHTTPRequestHandler]:
             studio_route = self.path in {"/studio/plan", "/studio/apply"}
             if origin and (not studio_route or origin != f"http://{self.headers['Host']}"):
                 _json_response(
-                    self, HTTPStatus.FORBIDDEN,
+                    self,
+                    HTTPStatus.FORBIDDEN,
                     {"status": "failed", "warning": "cross-origin browser request refused"},
                 )
                 return

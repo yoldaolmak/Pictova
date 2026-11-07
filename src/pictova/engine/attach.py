@@ -651,8 +651,11 @@ def _execute_native_attach_locked(
         raw = (str(live.get("modified") or "") + "\n" + str(live.get("content_raw") or "")).encode("utf-8")
         if not live or sha256(raw).hexdigest() != expected_post_digest:
             return build_failed_attach_result(
-                site=site, post_id=request["post_id"], request=request,
-                post_context=post_context, constraints=constraints,
+                site=site,
+                post_id=request["post_id"],
+                request=request,
+                post_context=post_context,
+                constraints=constraints,
                 warning="WordPress post changed since Studio preview; nothing was downloaded or published",
             )
         post_context = live
@@ -664,8 +667,11 @@ def _execute_native_attach_locked(
                 raise ValueError("Invalid approved selection")
         except Exception as exc:
             return build_failed_attach_result(
-                site=site, post_id=request.get("post_id"), request=request,
-                post_context=post_context, constraints=constraints,
+                site=site,
+                post_id=request.get("post_id"),
+                request=request,
+                post_context=post_context,
+                constraints=constraints,
                 warning=f"Approved candidate preparation failed ({type(exc).__name__}); nothing was published",
             )
     else:
