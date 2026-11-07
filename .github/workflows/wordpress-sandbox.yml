@@ -57,6 +57,10 @@ jobs:
             --allow-root --path=/var/www/html --url=http://127.0.0.1:8080 \
             --title="Pictova isolated live test" --admin_user=pictova_ci \
             --admin_password="pictova_ephemeral_admin_2026" --admin_email=pictova@example.test
+          docker exec "$wp_container" php /tmp/wp-cli.phar rewrite structure '/%postname%/' \
+            --hard --allow-root --path=/var/www/html
+          docker exec "$wp_container" php /tmp/wp-cli.phar rewrite flush \
+            --hard --allow-root --path=/var/www/html
           secret=$(docker exec "$wp_container" php /tmp/wp-cli.phar user application-password create \
             pictova_ci pictova_ci_test --porcelain --allow-root --path=/var/www/html)
           echo "::add-mask::$secret"
