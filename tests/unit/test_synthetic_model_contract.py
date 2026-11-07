@@ -142,10 +142,17 @@ def test_offline_openrouter_query_expansion_is_only_search_suggestion():
     fake = SyntheticOpenRouterTransport('{"queries":["mountain landscape", "stone buildings"]}')
     with patch("src.pictova.engine.vision_chain.urllib.request.urlopen", side_effect=fake):
         direct = query_expansion._ask_lm_studio("synthetic query", vision_chain)
+        wrapped = query_expansion._default_analyzer("synthetic query")
         result = query_expansion.expand_heading_query(
             "3. Uçhisar Kalesi", {"title": "Kapadokya Gezi Rehberi"}
         )
-    assert direct == '{"queries":["mountain landscape", "stone buildings"]}'
+    expected = '{"queries":["mountain landscape", "stone buildings"]}'
+    assert direct == expected
+    assert wrapped == expected, f"default provider failed with {len(fake.requests)} calls"
+    assert vision_chain._parse_json_from_text(wrapped)["queries"] == [
+        "mountain landscape", "stone buildings",
+    ]
+    assert len(fake.requests) == 3, f"local completion requests: {len(fake.requests)}"
     assert result == ["mountain landscape", "stone buildings"]
     assert fake.requests[0]["model"] == "local"
 
