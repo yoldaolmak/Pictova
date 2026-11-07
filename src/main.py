@@ -728,8 +728,13 @@ class YOOrchestrator:
                         post_id=post_id,
                         site=site,
                     )
+                    from src.pictova.engine.publish_outcome import classify_publish_result
+
                     result["steps"]["upload_complete"] = upload_result
-                    result["status"] = "success"
+                    publish_status, reason, reconcile = classify_publish_result(upload_result)
+                    result["status"] = publish_status
+                    result["publish_reason"] = reason
+                    result["needs_reconciliation"] = reconcile
                     result["uploaded_count"] = len(upload_result["uploaded"])
                     result["failed_count"] = len(upload_result["failed"])
                     self.log(f"\n  ✓ Uploaded: {len(upload_result['uploaded'])} images")
