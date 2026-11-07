@@ -58,3 +58,6 @@ jobs:
     
     - name: Run black check
       run: black --check --line-length 120 src/
+
+    - name: Check Studio JavaScript syntax
+      run: node --check src/pictova/app/static/studio.js
