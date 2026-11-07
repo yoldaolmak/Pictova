@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import json
+import urllib.error
 from unittest.mock import patch
 
 import pytest
@@ -175,3 +176,56 @@ def test_truncated_openrouter_completion_is_not_trusted_as_visual_evidence(tmp_p
         pytest.raises((ValueError, RuntimeError), match="truncat|incomplete|invalid"),
     ):
         vision_chain._analyze_lm_studio(_photo(tmp_path), "", {})
+
+
+def test_openrouter_response_fenced_json_with_braces_is_not_misparsed():
+    payload = {
+        "choices": [{
+            "message": {
+                "content": 'Here is JSON:\\n```json\\n{"alt": "A sign { with braces }", "keywords": ["stone"]}\\n```',
+            },
+            "finish_reason": "stop",
+        }]
+    }
+    result = vision_chain._parse_openai_compatible_completion(payload)
+    assert result["alt"] == "A sign { with braces }"
+
+
+def test_raw_model_output_and_error_bodies_never_reach_operator_exception(tmp_path):
+    secret = "PRIVATE_VISUAL_TEXT_123"
+    request_error = urllib.error.HTTPError(
+        "http://localhost:1234/v1/chat/completions",
+        400,
+        "bad request",
+        hdrs={},
+        fp=io.BytesIO(secret.encode()),
+    )
+    fake = SyntheticOpenRouterTransport('{"alt":"unused"}')
+
+    def read_or_fail(request, timeout=None):
+        url = request.full_url if hasattr(request, "full_url") else str(request)
+        if url.endswith("/models"):
+            return fake(request, timeout=timeout)
+        raise request_error
+
+    with (
+        patch("src.pictova.engine.vision_chain.urllib.request.urlopen", side_effect=read_or_fail),
+        pytest.raises(RuntimeError, match="LM Studio HTTP 400") as error,
+    ):
+        vision_chain._analyze_lm_studio(_photo(tmp_path), "", {})
+    assert secret not in str(error.value)
+
+
+def test_invalid_synthetic_completion_falls_back_without_a_real_api_call(tmp_path):
+    fake = SyntheticOpenRouterTransport('{"alt":"incomplete"}', finish_reason="length")
+    expected = {"title": "Recovered synthetic image", "alt": "A locally staged synthetic image"}
+    with (
+        patch("src.pictova.engine.vision_chain.urllib.request.urlopen", side_effect=fake),
+        patch("src.pictova.engine.vision_chain._analyze_gemini_flash", return_value=dict(expected)) as fallback,
+        patch("src.pictova.engine.vision_chain._analyze_openai_mini") as paid,
+    ):
+        result = vision_chain.analyze_image_vision_chain(_photo(tmp_path))
+    assert result["source"] == "gemini_flash"
+    assert result["alt"] == expected["alt"]
+    fallback.assert_called_once()
+    paid.assert_not_called()
