@@ -35,6 +35,7 @@ PREVIEW = _jpg()
 
 class StudioHandler(BaseHTTPRequestHandler):
     approvals = []
+    job_outcome = "success"
 
     def log_message(self, *_args):
         return
@@ -60,10 +61,15 @@ class StudioHandler(BaseHTTPRequestHandler):
                 return self._json(401, {"status": "failed"})
             return self._response(200, PREVIEW, "image/jpeg")
         if self.path == "/jobs/job-1":
+            outcome = StudioHandler.job_outcome
             return self._json(200, {
                 "status": "success", "job": {
-                    "status": "success",
-                    "result": {"status": "success", "uploaded_media_ids": [345], "inserted_blocks": 1}
+                    "status": outcome,
+                    "result": {
+                        "status": outcome, "uploaded_media_ids": [345], "inserted_blocks": 1,
+                        "warnings": ["manual inspection required"] if outcome != "success" else [],
+                    },
+                    "error": "Server restarted" if outcome == "interrupted" else None,
                 }
             })
         return self._json(404, {"status": "failed"})
@@ -117,6 +123,7 @@ def studio_server():
 def test_studio_responsive_review_and_approved_publish(studio_server, width, height):
     SCREENSHOTS.mkdir(exist_ok=True)
     StudioHandler.approvals.clear()
+    StudioHandler.job_outcome = "success"
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -164,7 +171,7 @@ def test_studio_responsive_review_and_approved_publish(studio_server, width, hei
             page.locator("#confirm").check()
             assert page.locator("#apply-button").is_enabled()
             page.locator("#apply-button").click()
-            page.wait_for_function("() => document.querySelector('#plan-state').textContent === 'Yayımlandı'")
+            page.wait_for_function("() => document.querySelector('#plan-state').textContent === 'Yayın doğrulandı'")
             assert StudioHandler.approvals == [{
                 "plan_id": "plan-1", "accepted_ids": ["local-1"], "confirm_paid": False
             }]
@@ -176,6 +183,7 @@ def test_studio_responsive_review_and_approved_publish(studio_server, width, hei
 
 def test_studio_paid_candidate_requires_separate_consent(studio_server):
     StudioHandler.approvals.clear()
+    StudioHandler.job_outcome = "success"
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page(viewport={"width": 390, "height": 844})
@@ -194,11 +202,44 @@ def test_studio_paid_candidate_requires_separate_consent(studio_server):
             page.locator("#confirm-paid").check()
             assert page.locator("#apply-button").is_enabled()
             page.locator("#apply-button").click()
-            page.wait_for_function("() => document.querySelector('#plan-state').textContent === 'Yayımlandı'")
+            page.wait_for_function("() => document.querySelector('#plan-state').textContent === 'Yayın doğrulandı'")
             assert StudioHandler.approvals == [{
                 "plan_id": "plan-1",
                 "accepted_ids": ["local-1", "stock-2"],
                 "confirm_paid": True,
             }]
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize(("outcome", "label"), [
+    ("partial", "Kontrol gerekli"),
+    ("interrupted", "İş kesildi"),
+    ("failed", "İşlem başarısız"),
+])
+def test_studio_never_calls_uncertain_outcomes_published(studio_server, outcome, label):
+    StudioHandler.approvals.clear()
+    StudioHandler.job_outcome = outcome
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": 390, "height": 844})
+        page.route(
+            "https://preview.example.test/**",
+            lambda route: route.fulfill(status=200, content_type="image/jpeg", body=PREVIEW),
+        )
+        try:
+            page.goto(studio_server + "/studio#token=" + TOKEN)
+            page.locator("#post-url").fill("https://yoldaolmak.com/kapadokya.html")
+            page.locator("#plan-button").click()
+            page.locator(".candidate").first.wait_for()
+            page.locator(".candidate input[type=checkbox]").nth(1).uncheck()
+            page.locator("#confirm").check()
+            page.locator("#apply-button").click()
+            page.wait_for_function(
+                "(label) => document.querySelector('#plan-state').textContent === label",
+                label,
+            )
+            assert "Yayın doğrulandı" not in page.locator("#notice").inner_text()
+            assert page.locator("#notice").is_visible()
         finally:
             browser.close()
