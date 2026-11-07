@@ -1,11 +1,9 @@
 # Installation
 
-Full setup guide covering all Pictova components.
-
 ## System Requirements
 
 - macOS or Linux
-- Python 3.10 or higher
+- Python 3.10–3.12 (CI-tested)
 - WordPress 5.8+ with Application Passwords enabled
 - (Optional) Mac Photos library for visual memory
 
@@ -26,11 +24,10 @@ source .venv/bin/activate
 ## Step 3: Install Dependencies
 
 ```bash
-pip install -r requirements.txt
 pip install -e .
 ```
 
-The `-e` flag installs Pictova in editable mode and registers the `pictova` CLI command.
+`-e` installs the CLI and runtime dependencies. For tests and lint, use `pip install -e '.[dev]'`.
 
 On macOS, install Photos-library support only if you will index Mac Photos:
 
@@ -66,18 +63,18 @@ pictova health
 ```
 
 The health JSON reports module readiness, indexed photo counts, vision sources,
-and configured WordPress sites. Overall `status: ok` is not a guarantee that
-a particular WordPress post or image provider is accessible.
+and configured WordPress sites. `status: ok` does not guarantee that a specific post or provider is accessible.
 
 ```bash
-python3.10 -m pytest -q
+pip install -e '.[dev]'
+python3 -m pytest -q
 ```
 
-Expected: all tests pass.
+Expected: passing tests and explicitly reported `xfail` cases. CI does not run live WordPress tests.
 
 ## Optional: Mac Photos Visual Memory
 
-If you want Pictova to draw images from your Mac Photos library, you need to set up the visual memory index separately.
+Index the Mac Photos library separately if you intend to use it.
 
 See [Mac Photos Setup](mac-photos-setup.md) for the full guide.
 
