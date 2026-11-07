@@ -140,7 +140,22 @@ def test_offline_model_cannot_turn_unrelated_beach_visual_into_named_app(tmp_pat
 
 def test_offline_openrouter_query_expansion_is_only_search_suggestion():
     fake = SyntheticOpenRouterTransport('{"queries":["mountain landscape", "stone buildings"]}')
-    with patch("src.pictova.engine.vision_chain.urllib.request.urlopen", side_effect=fake):
+    attempts = []
+    direct_sender = query_expansion._ask_lm_studio
+
+    def traced_sender(prompt, vision):
+        try:
+            answer = direct_sender(prompt, vision)
+            attempts.append(("returned", answer))
+            return answer
+        except Exception as error:
+            attempts.append(("raised", type(error).__name__, str(error)))
+            raise
+
+    with (
+        patch("src.pictova.engine.vision_chain.urllib.request.urlopen", side_effect=fake),
+        patch.object(query_expansion, "_ask_lm_studio", side_effect=traced_sender),
+    ):
         direct = query_expansion._ask_lm_studio("synthetic query", vision_chain)
         wrapped = query_expansion._default_analyzer("synthetic query")
         result = query_expansion.expand_heading_query(
@@ -148,7 +163,7 @@ def test_offline_openrouter_query_expansion_is_only_search_suggestion():
         )
     expected = '{"queries":["mountain landscape", "stone buildings"]}'
     assert direct == expected
-    assert wrapped == expected, f"default provider failed with {len(fake.requests)} calls"
+    assert wrapped == expected, f"provider trace: {attempts!r}"
     assert vision_chain._parse_json_from_text(wrapped)["queries"] == [
         "mountain landscape", "stone buildings",
     ]
