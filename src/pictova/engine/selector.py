@@ -874,7 +874,12 @@ def _candidate_matches_heading(
     # The heading is the subject of this image, not the article title.
     # A Cappadocia photo must not pass the Uçhisar heading merely because
     # "Cappadocia" also appears in the parent post's title.
-    heading_tokens = _specific_tokens(_token_set_from_text(_heading_to_search_query(heading_text)))
+    if heading_text.strip():
+        heading_tokens = _specific_tokens(_token_set_from_text(_heading_to_search_query(heading_text)))
+    else:
+        # Post-level selection has no section identity; preserve its explicit
+        # anchor instead of pretending the empty heading is a named place.
+        heading_tokens = _specific_tokens(_token_set_from_text(anchor_text)) or _primary_post_tokens(post_context or {})
     if not heading_tokens:
         return False
     candidate_tokens = _candidate_tokens_from_row(row)
