@@ -110,7 +110,8 @@ def _vision_prompt(image_path: str, location_hint: str, post_context: Dict) -> s
     del image_path, location_hint, post_context
     return (
         "Görseli yalnızca görünen piksellere dayanarak analiz et ve SADECE JSON döndür.\n"
-        "Başlık, lokasyon veya yazı bağlamı verilmemiştir: görünmeyen marka, uygulama, kişi, yer veya olayı tahmin etme.\n\n"
+        "Başlık, lokasyon veya yazı bağlamı verilmemiştir: görünmeyen marka, uygulama, kişi, "
+        "yer veya olayı tahmin etme.\n\n"
         "Kurallar:\n"
         "- alt: Ekran okuyucu ve erişilebilirlik için sade görsel tanımı (Türkçe, maks 120 kr)\n"
         "- title: Yalnızca görünür konu veya okunabilen işaret/markadan oluşan kısa başlık (Türkçe, maks 60 kr)\n"
@@ -120,7 +121,9 @@ def _vision_prompt(image_path: str, location_hint: str, post_context: Dict) -> s
         "- keywords: 3-5 adet anahtar kelime (Türkçe)\n"
         "- scene/activity: Kategori ve aktivite (İngilizce)\n"
         "- story_score: Seyahat değeri (0.0 - 1.0)\n\n"
-        '{"alt":"...","title":"...","visible_text":"...","caption":"...","description":"...","summary":"...","keywords":[],"people":[],"scene":"...","activity":"...","story_score":0.8}'
+        '{"alt":"...","title":"...","visible_text":"...","caption":"...",'
+        '"description":"...","summary":"...","keywords":[],"people":[],'
+        '"scene":"...","activity":"...","story_score":0.8}'
     )
 
 
@@ -292,7 +295,6 @@ def _analyze_codex(
 def _prepare_image_for_cli(image_path: str, max_side: int = 512) -> str:
     """Convert HEIC or large files to a small JPEG thumbnail. Returns the path."""
     p = Path(image_path)
-    ext = p.suffix.lower()
     # A fixed /tmp name is both a collision between concurrent runs on the same
     # stem and a world-writable path another user can pre-create.
     thumb_dir = Path(tempfile.mkdtemp(prefix="pictova_thumb_"))
