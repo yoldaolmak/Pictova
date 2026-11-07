@@ -574,11 +574,9 @@ def build_native_metadata_map(
     """Generate metadata via vision chain. Checks DB cache first.
 
     Priority:
-      0. DB cache (vision_scan_status='done' — instant, free)
-      1. Gemini Flash (GEMINI_API_KEY)
-      2. Codex CLI web login
-      3. Claude CLI web login
-    NO basic fallback — RuntimeError if none work.
+      0. Existing Visual Memory metadata cache.
+      1. Vision chain: local LM Studio, Gemini, OpenAI, Codex, Claude.
+    No fabricated basic metadata when a required vision source fails.
     """
     post_context = post_context or {}
     assigned_headings = assigned_headings or {}
