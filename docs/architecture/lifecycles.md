@@ -17,7 +17,7 @@ contract, not a second workflow engine.
 | Metadata | existing verified cache → applied, otherwise vision → validated / error. |
 | Quality gate | processed → approved / blocked, per image. |
 | Native attach | validated → exclusive per-post lock → selection → process → quality → WordPress write → verified outcome. |
-| WordPress media | upload → metadata → post association → article insertion → read-after-write confirmation. Upload alone never means published. |
+| WordPress media | upload → metadata → post association → article insertion → read-after-write confirmation. Failed metadata triggers a compensating delete; failed association is a partial result. Upload alone never means published. |
 | Post content | editor snapshot → optimistic conflict check → mutation → readback → manifest. A changed post aborts. |
 | Managed-media integrity | untracked / empty / healthy / drift / invalid. Healthy requires real blocks, expected URLs and approved section positions. |
 | Guard maintenance | drift → explicit repair/reposition/reset → verified / failed. Mixed ownership stays blocked. |
