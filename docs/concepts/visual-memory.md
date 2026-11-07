@@ -1,49 +1,21 @@
 # Visual Memory
 
-Visual Memory is Pictova's local image index. It is a SQLite database that stores metadata about every image in your library — including Apple Photos ML enrichments — and powers the semantic selection engine.
+Visual Memory is the optional local SQLite index used for searching existing
+photos. It stores metadata such as location, activity, scene, source path,
+quality fields and Apple Photos labels when available. It does not change the
+original Mac Photos library.
 
-## What It Contains
+## Index and consumer
 
-Each record in the `asset_index` table represents one image and stores:
+Indexing scripts build or update the `asset_index` table. The native selector
+queries that table and may retrieve local or iCloud candidate references.
+The database is local runtime state and is excluded from Git.
 
-| Field | Description |
-|-------|-------------|
-| `source_path` | Absolute path to the original file |
-| `filename` | File name |
-| `title` | Human-readable title (from Photos or inferred) |
-| `description` | Generated or Photos-sourced description |
-| `summary` | Short text summary |
-| `location` | Place name where the photo was taken |
-| `city` | City extracted from Photos moment metadata |
-| `country` | Country |
-| `activity` | Activity detected (hiking, dining, etc.) |
-| `scene` | Scene type (landscape, street, interior, etc.) |
-| `quality_score` | Source-quality signal used for ranking |
-| `apple_labels_json` | Labels supplied by Apple Photos, when available |
-| `people_json` | People metadata supplied by Apple Photos, when available |
-| `is_personal` / `is_video` | Safety flags that make an asset ineligible for normal selection |
+A local index result is **a candidate, not proof** that the photo depicts a
+specific article section. The section-name gate uses the available indexed
+metadata; unknown or generic evidence can cause rejection.
 
-## Why It Exists
-
-Mac Photos stores originals with UUID-based paths that change across devices and library migrations. A path-only approach breaks silently. Visual Memory solves this by indexing semantic fields alongside paths, so the selection engine can match on `city`, `scene`, or `activity` even when the path structure is opaque.
-
-## The Two Runtimes
-
-Visual Memory operates across two runtimes:
-
-**Index runtime** (`scripts/` in this repository):
-- Scans Photos or local archives
-- Writes the local `visual_memory.db`
-- Optionally enriches it with Apple Photos metadata
-
-**Consumer runtime** (the Pictova engine):
-- Reads `visual_memory.db` via `YO_VISUAL_MEMORY_DB`
-- Uses it only for semantic selection
-- Never modifies the Photos library itself
-
-The index is local runtime state and is intentionally excluded from Git.
-
-## Indexing
+## Setup
 
 ```bash
 python3 scripts/index_turkey_photos.py
@@ -51,19 +23,21 @@ python3 scripts/rebuild_fts.py
 python3 scripts/build_destination_index.py
 ```
 
-The first command adds Mac Photos assets and marks personal or video items as
-non-selectable. The latter commands rebuild lookup indexes. Run these only from
-an explicitly supervised terminal session; they touch the local index, not WordPress.
+These scripts modify the local index, not WordPress. Run them deliberately,
+after reviewing [Mac Photos Setup](../guides/mac-photos-setup.md) and
+[Indexing Operations](../ops/indexing.md).
 
-Run all three after importing new photos or on a daily schedule.
+Set `YO_VISUAL_MEMORY_DB` to the absolute path of the created index. Avoid
+committing the database, source image paths or private Photos metadata.
 
-See: [Indexing Ops Guide](../ops/indexing.md)
-
-## Verification
+## Test a local search
 
 ```python
-from src.main import search_semantic_assets
-print(search_semantic_assets('Sinop', count=5))
+from src.pictova.engine.search import search_semantic_assets
+
+print(search_semantic_assets(location_query="Sinop", count=5))
 ```
 
-A working index returns real file paths to Photos originals matching the query. An empty result means the index is missing, the `YO_VISUAL_MEMORY_DB` env var is unset, or no assets match.
+An empty result may mean the index is missing, unconfigured, or lacks a
+matching candidate. It is not an authorization to fall back to any image
+from the same country.
