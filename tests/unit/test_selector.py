@@ -649,6 +649,7 @@ def test_deposit_download_retries_file_read_without_requesting_license_again(tmp
     license_response = {"type": "success", "downloadLink": "https://download.test/123"}
 
     with patch("src.pictova.providers.deposit._post", return_value=license_response) as post, \
+         patch("src.pictova.providers.deposit._api_key", return_value="unit-test-key"), \
          patch("src.pictova.providers.deposit._urlopen_with_retry", side_effect=[timed_out, completed]), \
          patch("src.pictova.providers.deposit.time.sleep") as sleep:
         cached = download("123", "session", dest_dir=str(tmp_path / "cache"))
@@ -670,6 +671,7 @@ def test_deposit_download_resumes_partial_file_with_range_without_relicensing(tm
     license_response = {"type": "success", "downloadLink": "https://download.test/123"}
 
     with patch("src.pictova.providers.deposit._post", return_value=license_response) as post, \
+         patch("src.pictova.providers.deposit._api_key", return_value="unit-test-key"), \
          patch("src.pictova.providers.deposit._urlopen_with_retry", side_effect=[first, resumed]) as open_url, \
          patch("src.pictova.providers.deposit.time.sleep"):
         cached = download("123", "session", dest_dir=str(tmp_path / "cache"))
