@@ -23,7 +23,12 @@ def classify_publish_result(published: Mapping[str, Any], *, warnings: bool = Fa
     """
     failed_attempts = published.get("failed") or []
     upload_uncertain = any(
-        isinstance(item, dict) and (item.get("orphaned_media_id") or item.get("upload_unconfirmed"))
+        isinstance(item, dict)
+        and (
+            item.get("orphaned_media_id")
+            or item.get("upload_unconfirmed")
+            or item.get("code") == "post_media_association_failed"
+        )
         for item in failed_attempts
     )
     rollback = published.get("rollback") or {}
@@ -58,7 +63,7 @@ def classify_publish_result(published: Mapping[str, Any], *, warnings: bool = Fa
     idempotent = bool(content.get("idempotent")) and bool(existing)
 
     if inserted == 0 and not idempotent:
-        return "failed", "no_verified_media_placement", False
+        return "failed", "no_verified_media_placement", needs_reconciliation
 
     if published.get("failed") or warnings:
         return "partial", "verified_with_warnings", needs_reconciliation
