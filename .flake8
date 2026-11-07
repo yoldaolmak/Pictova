@@ -1,0 +1,8 @@
+[flake8]
+max-line-length = 120
+# Black intentionally emits E203-style slices; Flake8's E203 conflicts.
+extend-ignore = E203
+# The legacy entrypoint loads its .env before importing modules with module-time
+# site/provider configuration. Reordering the imports changes runtime behavior.
+per-file-ignores =
+    src/main.py: E402
