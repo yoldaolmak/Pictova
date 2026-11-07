@@ -1,35 +1,10 @@
-# Indexing
+# Photo Index Operations
 
-Visual Memory index maintenance guide.
+The optional local SQLite index stores source image paths, location, labels and visual metadata. It can include personal metadata. Keep it outside version control.
 
-## Index Location
+## Index and refresh
 
-```
-/Users/yoldaolmak/Projects/Pictova/
-  data/
-    visual_memory.db     ← the index
-  destination_index.json ← derived local lookup cache
-  scripts/
-    index_turkey_photos.py
-    rebuild_fts.py
-    build_destination_index.py
-  .venv/
-```
-
-## What the Index Contains
-
-The `asset_index` table. One row per image. Key fields:
-
-- `source_path` — absolute path to original
-- `location`, `city`, `country` — from Photos moment metadata
-- `scene`, `activity` — from the optional Vision scan
-- `quality_score` — source-quality signal used for ranking
-- `apple_labels_json`, `people_json` — Photos-provided labels and people
-- `is_personal`, `is_video` — never eligible for normal content selection
-
-## Running the Indexer
-
-### Full index (first time or after large import)
+On the Mac with the Photos library and `osxphotos` installed:
 
 ```bash
 python3 scripts/index_turkey_photos.py
@@ -37,50 +12,36 @@ python3 scripts/rebuild_fts.py
 python3 scripts/build_destination_index.py
 ```
 
-This is a local, potentially long-running operation. It does not publish or
-alter WordPress content.
+Set `YO_VISUAL_MEMORY_DB` in `.env` if the index is not at `data/visual_memory.db`. These scripts update local index state; they do not write to WordPress.
 
-### Refresh after new photos
+## Inspect
 
 ```bash
-python3 scripts/index_turkey_photos.py
-python3 scripts/rebuild_fts.py
-python3 scripts/build_destination_index.py
+pictova health
 ```
 
-### Verify index health
+For a read-only row count:
 
 ```bash
 python3 - <<'PY'
 import sqlite3
-db = "/Users/yoldaolmak/Projects/Pictova/data/visual_memory.db"
-con = sqlite3.connect(db)
-count = con.execute("SELECT COUNT(*) FROM asset_index").fetchone()[0]
-with_location = con.execute("SELECT COUNT(*) FROM asset_index WHERE city IS NOT NULL").fetchone()[0]
-print(f"Total assets: {count}")
-print(f"With location: {with_location}")
+from src.pictova.config import get_visual_memory_db_path
+
+with sqlite3.connect(str(get_visual_memory_db_path())) as conn:
+    print(conn.execute("SELECT COUNT(*) FROM asset_index").fetchone()[0])
 PY
 ```
 
-## Vision Scan Budget
-
-Run scans explicitly, with a small bound on a tethered connection:
+## Optional visual enrichment
 
 ```bash
 python3 scripts/fast_scan.py --workers 1 --limit 50
 ```
 
-The default calendar-day cap is 1,350. Override it through
-`PICTOVA_VISION_DAILY_LIMIT` or `--daily-limit`; zero means unlimited and is
-intended only for an observed run.
+`PICTOVA_VISION_DAILY_LIMIT` caps completed scans per day; `0` disables this guard. Confirm data and provider costs before changing the limit.
 
-## Rebuilding the Index
+## Recover
 
-If the index is corrupt or you want a clean slate:
+Back up the index before rebuilding or migrating it. Verify the backup and the configured database path. Never delete the only copy to force a rebuild.
 
-```bash
-rm data/visual_memory.db
-python3 scripts/index_turkey_photos.py
-python3 scripts/rebuild_fts.py
-python3 scripts/build_destination_index.py
-```
+See [Mac Photos setup](../guides/mac-photos-setup.md).
