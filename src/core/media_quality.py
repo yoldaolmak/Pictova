@@ -29,4 +29,11 @@ __all__ = [
     "normalize_text",
     "validate_metadata",
     "validate_processed_asset",
+    "_anchor_tokens_from_text",
+    "_collect_semantic_anchors",
+    "_contains_bad_token",
+    "_expand_anchor_tokens",
+    "_has_anchor_support",
+    "_phrase_supported",
+    "_tokenize_phrase",
 ]
