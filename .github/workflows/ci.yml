@@ -57,7 +57,7 @@ jobs:
     
     - name: Install linters
       run: |
-        pip install flake8 black mypy
+        pip install flake8==7.3.0 black==25.1.0
     
     - name: Run flake8
       run: flake8 src/ --max-line-length=120
