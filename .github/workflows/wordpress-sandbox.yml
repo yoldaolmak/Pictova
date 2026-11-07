@@ -61,6 +61,10 @@ jobs:
             --hard --allow-root --path=/var/www/html
           docker exec "$wp_container" php /tmp/wp-cli.phar rewrite flush \
             --hard --allow-root --path=/var/www/html
+          # WP-CLI runs as root here; Apache uploads as www-data.
+          # Match a normal writable WordPress uploads installation.
+          docker exec "$wp_container" sh -c \
+            'mkdir -p /var/www/html/wp-content/uploads && chown -R www-data:www-data /var/www/html/wp-content/uploads'
           secret=$(docker exec "$wp_container" php /tmp/wp-cli.phar user application-password create \
             pictova_ci pictova_ci_test --porcelain --allow-root --path=/var/www/html)
           echo "::add-mask::$secret"
