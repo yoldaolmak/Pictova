@@ -154,3 +154,106 @@ def test_refresh_managed_media_captions_preserves_positions_and_updates_attachme
         caption="İnsan yalnız seyahatten değil, kendi komutasına geçmekten korkuyor.",
         description="İnsan yalnız seyahatten değil, kendi komutasına geçmekten korkuyor.",
     )
+
+def test_created_media_is_deleted_if_metadata_update_fails(tmp_path):
+    import requests
+
+    from src.services.wordpress import YOWordPressUploader
+
+    source = tmp_path / "new-image.webp"
+    source.write_bytes(b"example file")
+    uploader = object.__new__(YOWordPressUploader)
+    uploader.base_url = "https://example.test"
+    uploader.session = MagicMock()
+    created = MagicMock()
+    created.raise_for_status.return_value = None
+    created.json.return_value = {"id": 712, "source_url": "https://example.test/712.webp"}
+    metadata = MagicMock()
+    metadata.raise_for_status.side_effect = requests.exceptions.HTTPError("metadata rejected")
+    uploader.session.post.side_effect = [created, metadata]
+    uploader.delete_media = MagicMock(return_value={"success": True, "media_id": 712})
+
+    result = uploader.upload_media(str(source), title="Kale", alt_text="Kale")
+    assert result["success"] is False
+    assert result["reverted_media_id"] == 712
+    assert "orphaned_media_id" not in result
+    uploader.delete_media.assert_called_once_with(712)
+
+
+def test_metadata_rollback_failure_is_explicit_orphan(tmp_path):
+    import requests
+
+    from src.services.wordpress import YOWordPressUploader
+
+    source = tmp_path / "image.webp"
+    source.write_bytes(b"example file")
+    uploader = object.__new__(YOWordPressUploader)
+    uploader.base_url = "https://example.test"
+    uploader.session = MagicMock()
+    created = MagicMock()
+    created.json.return_value = {"id": 719}
+    metadata = MagicMock()
+    metadata.raise_for_status.side_effect = requests.exceptions.HTTPError("metadata failed")
+    uploader.session.post.side_effect = [created, metadata]
+    uploader.delete_media = MagicMock(return_value={"success": False, "error": "not allowed"})
+
+    result = uploader.upload_media(str(source), title="Kale", alt_text="Kale")
+    assert result["success"] is False
+    assert result["orphaned_media_id"] == 719
+    assert result["cleanup_error"] == "not allowed"
+
+    from src.pictova.engine.publish_outcome import classify_publish_result
+
+    publish = {
+        "uploaded": [], "failed": [result],
+        "content_update": {"success": True, "idempotent": False, "inserted": 0},
+    }
+    assert classify_publish_result(publish) == ("failed", "no_verified_media_placement", True)
+
+
+def test_unconfirmed_media_http_upload_does_not_claim_no_side_effect(tmp_path):
+    import requests
+
+    from src.services.wordpress import YOWordPressUploader
+
+    source = tmp_path / "image.webp"
+    source.write_bytes(b"example file")
+    uploader = object.__new__(YOWordPressUploader)
+    uploader.base_url = "https://example.test"
+    uploader.session = MagicMock()
+    uploader.session.post.side_effect = requests.exceptions.Timeout("unknown upload state")
+    uploader.delete_media = MagicMock()
+
+    result = uploader.upload_media(str(source), title="Kale", alt_text="Kale")
+    assert result["success"] is False
+    assert result["upload_unconfirmed"] is True
+    uploader.delete_media.assert_not_called()
+
+
+def test_failed_post_association_is_partial_even_if_block_is_inserted(monkeypatch, tmp_path):
+    from src.services import wordpress
+    from src.pictova.engine.publish_outcome import classify_publish_result
+
+    source = tmp_path / "one.webp"
+    source.write_bytes(b"image content")
+    uploader = MagicMock()
+    uploader.guard_post_media.return_value = {"status": "success"}
+    uploader.upload_media.return_value = {
+        "success": True, "media_id": 711, "url": "https://example.test/711.webp",
+    }
+    uploader.attach_to_post.return_value = {
+        "success": False, "error": "WordPress association rejected",
+    }
+    uploader.append_media_to_post_content.return_value = {
+        "success": True, "updated": True, "inserted": 1,
+    }
+    monkeypatch.setattr(wordpress, "YOWordPressUploader", lambda site: uploader)
+    monkeypatch.setattr(wordpress, "load_post_media_manifest", lambda site, post_id: None)
+    result = wordpress.upload_images_batch(
+        image_files=[str(source)],
+        metadata_dict={str(source): {"title": "Kale", "alt": "Kale", "heading": "Kale"}},
+        site="yoldaolmak", post_id=711,
+    )
+    assert result["uploaded"][0]["media_id"] == 711
+    assert result["failed"][0]["code"] == "post_media_association_failed"
+    assert classify_publish_result(result) == ("partial", "verified_with_warnings", True)
