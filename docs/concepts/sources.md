@@ -1,8 +1,8 @@
 # Image Sources
 
-Pictova has one supported source-selection path: the native selector. It keeps
-the same semantic contract across sources and does not use one-off download or
-WordPress scripts.
+Pictova's native selector is the supported selection entry point. Source
+capabilities differ: a configured provider can return candidates without
+proving that they depict the article's named H2/H3 subject.
 
 ## Sources
 
@@ -26,7 +26,12 @@ specific anchor in the candidate evidence. A generic waterfall cannot satisfy
 If a source cannot provide an exact candidate, that slot stays empty and the
 receipt reports why.
 
-This rule applies across local Photos, DepositPhotos, and free providers.
+The native heading-aware `auto` / `semantic` routes enforce section identity;
+DepositPhotos checks the provider title before a licensed download. Explicit
+`local`, `vil`, and `unsplash` modes are not interchangeable with that gate:
+a caller-provided path or free-provider search ranking is not independent
+identity evidence. Use a reviewed plan for direct source modes.
+
 Selection hints such as the article title or heading never become visual facts
 in image metadata.
 
