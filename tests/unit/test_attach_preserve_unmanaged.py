@@ -28,9 +28,9 @@ def test_attach_preserves_unmanaged_broken_url_placeholder_and_post_text(monkeyp
     editorial_paragraph = "<!-- wp:paragraph -->\n<p>Preserve this editorial copy exactly.</p>\n<!-- /wp:paragraph -->"
     # Two editorial paragraphs separate the old media from this new section.
     # The existing no-stacking guard must remain effective.
-    intro = "<!-- wp:paragraph -->\\n<p>Earlier section.</p>\\n<!-- /wp:paragraph -->"
-    gap = "<!-- wp:paragraph -->\\n<p>Independent text.</p>\\n<!-- /wp:paragraph -->"
-    original = "\\n\\n".join((old_image, empty_placeholder, intro, gap, heading, editorial_paragraph))
+    intro = "<!-- wp:paragraph -->\n<p>Earlier section.</p>\n<!-- /wp:paragraph -->"
+    gap = "<!-- wp:paragraph -->\n<p>Independent text.</p>\n<!-- /wp:paragraph -->"
+    original = "\n\n".join((old_image, empty_placeholder, intro, gap, heading, editorial_paragraph))
 
     uploader.session.post = Mock()
     uploader.session.post.return_value.raise_for_status = Mock()
