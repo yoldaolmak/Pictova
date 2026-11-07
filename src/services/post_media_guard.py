@@ -185,16 +185,52 @@ def save_post_media_manifest(
 
 
 def assess_post_media(manifest: Dict[str, Any], content_raw: str) -> Dict[str, Any]:
+    """Check actual Gutenberg blocks and approved heading ownership, not IDs alone.
+
+    An ID in arbitrary article text or an image moved beneath another heading
+    is not proof that Pictova's approved placement is still intact.
+    """
     expected = [int(value) for value in manifest.get("expected_media_ids", [])]
-    present = extract_media_ids(content_raw)
-    present_set = set(present)
-    missing = [media_id for media_id in expected if media_id not in present_set]
-    state = "empty" if not expected else ("drift" if missing else "healthy")
+    observed = media_items_from_content(content_raw, allowed_media_ids=expected)
+    by_id: Dict[int, list[Dict[str, Any]]] = {}
+    for item in observed:
+        by_id.setdefault(int(item["media_id"]), []).append(item)
+
+    missing = [media_id for media_id in expected if media_id not in by_id]
+    duplicate = [media_id for media_id in expected if len(by_id.get(media_id, [])) > 1]
+    expected_items = {
+        int(item.get("media_id") or 0): item
+        for item in manifest.get("media_items", [])
+        if item.get("media_id")
+    }
+    misplaced = []
+    mismatched_url = []
+    for media_id in expected:
+        if len(by_id.get(media_id, [])) != 1:
+            continue
+        before = expected_items.get(media_id) or {}
+        actual = by_id[media_id][0]
+        heading = str(before.get("heading") or "").strip()
+        if heading:
+            actual_heading = str(actual.get("heading") or "").strip()
+            if (actual_heading.casefold(), actual.get("heading_level")) != (
+                heading.casefold(), int(before.get("heading_level") or 0)
+            ):
+                misplaced.append(media_id)
+        expected_url = str(before.get("url") or "").strip()
+        if expected_url and expected_url != str(actual.get("url") or "").strip():
+            mismatched_url.append(media_id)
+
+    drift = bool(missing or misplaced or duplicate or mismatched_url)
+    state = "empty" if not expected else ("drift" if drift else "healthy")
     return {
         "state": state,
         "expected_media_ids": expected,
-        "present_media_ids": [media_id for media_id in expected if media_id in present_set],
+        "present_media_ids": [media_id for media_id in expected if media_id in by_id],
         "missing_media_ids": missing,
+        "misplaced_media_ids": misplaced,
+        "duplicate_media_ids": duplicate,
+        "changed_url_media_ids": mismatched_url,
         "expected_count": len(expected),
         "present_count": len(expected) - len(missing),
     }
