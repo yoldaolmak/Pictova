@@ -196,7 +196,8 @@ class YOWordPressUploader:
         self.password = config["password"]
         if not self.base_url or not self.user or not self.password:
             raise ValueError(
-                f"Missing WordPress credentials for site: {site}; set {config.get('credential_names', 'the site app-password variable')}"
+                f"Missing WordPress credentials for site: {site}; set "
+                f"{config.get('credential_names', 'the site app-password variable')}"
             )
         self.session = self._create_session()
 
@@ -1388,7 +1389,8 @@ def _extract_available_headings(content: str) -> list[dict]:
     only consecutively numbered H2 items are eligible.
     """
     heading_pattern = re.compile(
-        r"<!-- wp:heading(?:\s+\{.*?\})? -->\s*<h(?P<level>[2-3])\b[^>]*>(?P<inner>.*?)</h(?P=level)>\s*<!-- /wp:heading -->",
+        r"<!-- wp:heading(?:\s+\{.*?\})? -->\s*"
+        r"<h(?P<level>[2-3])\b[^>]*>(?P<inner>.*?)</h(?P=level)>\s*<!-- /wp:heading -->",
         flags=re.S | re.I,
     )
     matches = list(heading_pattern.finditer(content))
