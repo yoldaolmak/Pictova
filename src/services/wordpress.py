@@ -705,9 +705,11 @@ class YOWordPressUploader:
             )
             current_content = _remove_auto_media_region(current_content)
 
-        current_content, removed_empty = self._remove_empty_image_blocks(current_content)
-        current_content, removed_broken = self._remove_broken_local_image_blocks(current_content)
-        removed_broken += removed_empty + repositioned
+        # Normal attachment must never delete unrelated editorial blocks.
+        # A broken URL or an intentionally empty Gutenberg placeholder is not
+        # evidence that Pictova owns the image. Cleanup belongs to explicit,
+        # ownership-checked media repair, not to the default publish path.
+        removed_broken = repositioned
         has_unanchored_items = any(not str(item.get("heading", "") or "").strip() for item in media_items)
         if has_unanchored_items:
             current_content = _remove_auto_media_region(current_content)
