@@ -20,6 +20,7 @@ Understand the system before running it.
 ### Guides
 Task-oriented walkthroughs.
 
+- [Studio](guides/studio.md) — URL, preview, reject, approve and native WordPress apply
 - [Quickstart](guides/quickstart.md) — Review, plan and safely publish
 - [Installation](guides/installation.md) — Full setup with all components
 - [Mac Photos Setup](guides/mac-photos-setup.md) — Index and enrich your Photos library
