@@ -1,4 +1,4 @@
-"""Canonical CLI entrypoint for VIL."""
+"""Pictova command-line entrypoint."""
 
 from __future__ import annotations
 
