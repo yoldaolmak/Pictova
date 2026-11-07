@@ -372,7 +372,10 @@ def validate_attach_request(
             request=request,
             post_context=post_context,
             constraints=constraints,
-            warning="location_query could not be derived; provide --location-query or ensure the post has a usable title/slug",
+            warning=(
+                "location_query could not be derived; provide --location-query "
+                "or ensure the post has a usable title/slug"
+            ),
         )
     if source == "unsplash" and not request.get("query"):
         return build_failed_attach_result(
