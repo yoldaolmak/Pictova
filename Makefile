@@ -1,54 +1,39 @@
-# VIL - Visual Intelligence Layer
-# Premium Startup Makefile
+# Pictova developer commands. Uses the same formatting limits as CI.
 
-.PHONY: install test lint clean run help docs format test-cov venv
+.PHONY: help install install-dev test test-unit lint format studio run clean
 
 help:
-	@echo "VIL - Visual Intelligence Layer"
-	@echo ""
-	@echo "Available targets:"
-	@echo "  install    Install all dependencies"
-	@echo "  test       Run test suite"
-	@echo "  test-cov   Run tests with coverage report"
-	@echo "  lint       Run code linters"
-	@echo "  format     Format code with black"
-	@echo "  clean      Clean temporary files"
-	@echo "  run        Run the orchestrator (requires POST_ID)"
-	@echo "  docs       Generate documentation"
-	@echo "  venv       Create virtual environment"
+	@printf 'Pictova: install | install-dev | test | test-unit | lint | format | studio | run POST_ID=<id> | clean\n'
 
 install:
-	pip install -r requirements.txt
+	python -m pip install -r requirements.txt
+	python -m pip install -e .
+
+install-dev: install
+	python -m pip install flake8==7.3.0 black==25.1.0
 
 test:
-	pytest tests/unit -v
+	python -m pytest tests/ -q
 
-test-cov:
-	pytest tests/unit -v --cov=src --cov-report=term-missing --cov-report=html
+test-unit:
+	python -m pytest tests/unit/ -q
 
 lint:
-	flake8 src/ --max-line-length=120
-	black --check src/
+	python -m flake8 src/ --max-line-length=120
+	python -m black --check --line-length 120 src/
+	node --check src/pictova/app/static/studio.js
 
 format:
-	black src/
+	python -m black --line-length 120 src/
+
+studio:
+	pictova studio
+
+# Compatibility convenience command; WordPress writes occur only after this command.
+run:
+	@test -n "$(POST_ID)" || (echo "Usage: make run POST_ID=<id> [SITE=yoldaolmak]" && exit 2)
+	pictova attach --post "$(POST_ID)" --site "$(or $(SITE),auto)" --source auto --engine native
 
 clean:
-	find . -type d -name "__pycache__" -exec rm -rf {} +
-	find . -type f -name "*.pyc" -delete
-	find . -type f -name "*.pyo" -delete
-	find . -type d -name "*.egg-info" -exec rm -rf {} +
-	rm -rf .pytest_cache .coverage htmlcov/
-
-run:
-	@if [ -z "$(POST_ID)" ]; then \
-		echo "Usage: make run POST_ID=<post_id>"; \
-		exit 1; \
-	fi
-	python -m src.core.yo_orchestrator --post-id $(POST_ID)
-
-venv:
-	python -m venv venv
-
-docs:
-	ls -la docs/
+	find . -type d -name __pycache__ -prune -exec rm -rf {} +
+	rm -rf .pytest_cache htmlcov build dist
