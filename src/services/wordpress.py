@@ -1217,7 +1217,7 @@ class YOWordPressUploader:
 
         def block_media_ids(block: str) -> set[int]:
             # A word boundary prevents media 12 from matching media 123.
-            return {int(value) for value in re.findall(r"wp-image-(\\d+)\\b", block, flags=re.I)}
+            return {int(value) for value in re.findall(r"wp-image-(\d+)\b", block, flags=re.I)}
 
         def remove_if_managed(match: re.Match[str]) -> str:
             nonlocal removed
@@ -1228,9 +1228,9 @@ class YOWordPressUploader:
             if not block_ids <= media_ids:
                 raise ValueError("Managed media shares a Gutenberg block with untracked images")
 
-            if re.match(r"<!-- wp:gallery\\b", block, flags=re.I):
+            if re.match(r"<!-- wp:gallery\b", block, flags=re.I):
                 children = re.findall(
-                    r"<!-- wp:image\\b.*?<!-- /wp:image -->",
+                    r"<!-- wp:image\b.*?<!-- /wp:image -->",
                     block, flags=re.S | re.I,
                 )
                 if not children or any(
@@ -1238,22 +1238,22 @@ class YOWordPressUploader:
                 ):
                     raise ValueError("Gallery contains images without unambiguous managed identity")
                 remainder = re.sub(
-                    r"<!-- wp:image\\b.*?<!-- /wp:image -->", "", block, flags=re.S | re.I,
+                    r"<!-- wp:image\b.*?<!-- /wp:image -->", "", block, flags=re.S | re.I,
                 )
-                if re.search(r"<img\\b|<figcaption\\b|<!-- wp:(?!gallery\\b)", remainder, flags=re.I):
+                if re.search(r"<img\b|<figcaption\b|<!-- wp:(?!gallery\b)", remainder, flags=re.I):
                     raise ValueError("Gallery contains editorial content outside managed image blocks")
 
             removed += 1
             return ""
 
         cleaned = re.sub(
-            r"<!-- wp:gallery\\b.*?<!-- /wp:gallery -->\\s*",
+            r"<!-- wp:gallery\b.*?<!-- /wp:gallery -->\s*",
             remove_if_managed,
             content,
             flags=re.S | re.I,
         )
         cleaned = re.sub(
-            r"<!-- wp:image\\b.*?<!-- /wp:image -->\\s*",
+            r"<!-- wp:image\b.*?<!-- /wp:image -->\s*",
             remove_if_managed,
             cleaned,
             flags=re.S | re.I,
@@ -1261,12 +1261,12 @@ class YOWordPressUploader:
         if not removed:
             return content, 0
         cleaned = re.sub(
-            re.escape(AUTO_MEDIA_START) + r"\\s*" + re.escape(AUTO_MEDIA_END) + r"\\s*",
+            re.escape(AUTO_MEDIA_START) + r"\s*" + re.escape(AUTO_MEDIA_END) + r"\s*",
             "",
             cleaned,
             flags=re.I,
         )
-        return cleaned.strip() + ("\\n" if cleaned.strip() else ""), removed
+        return cleaned.strip() + ("\n" if cleaned.strip() else ""), removed
 
 
 def _strip_html(value: str) -> str:
