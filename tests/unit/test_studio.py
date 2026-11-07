@@ -310,3 +310,59 @@ def test_http_studio_static_host_and_origin_guards(monkeypatch):
         srv.shutdown()
         srv.server_close()
         thread.join(timeout=3)
+
+def test_failed_job_enqueue_restores_studio_plan(tmp_path, monkeypatch):
+    local_photo = _photo(tmp_path, "uchisar.jpg")
+    store = studio.StudioPlans()
+    plan = _make_plan(store, monkeypatch, [local_photo])
+    candidate_id = plan["candidates"][0]["id"]
+
+    monkeypatch.setattr(studio.job_registry, "create_job", MagicMock(side_effect=OSError("disk full")))
+    with pytest.raises(studio.StudioError, match="kuyruğa alınamadı"):
+        store.approve(plan["plan_id"], [candidate_id])
+
+    retained = store._plans[plan["plan_id"]]
+    assert retained["used"] is False
+    assert retained["status"] == "available"
+
+    monkeypatch.setattr(studio.job_registry, "create_job", lambda **kwargs: {"job_id": "recovered"})
+    assert store.approve(plan["plan_id"], [candidate_id])["job_id"] == "recovered"
+    assert retained["used"] is True
+
+
+def test_concurrent_studio_approval_cannot_enqueue_twice(tmp_path, monkeypatch):
+    local_photo = _photo(tmp_path, "uchisar.jpg")
+    store = studio.StudioPlans()
+    plan = _make_plan(store, monkeypatch, [local_photo])
+    candidate_id = plan["candidates"][0]["id"]
+    entering = threading.Event()
+    releasing = threading.Event()
+    jobs = []
+    errors = []
+
+    def slow_create_job(**kwargs):
+        jobs.append(kwargs)
+        entering.set()
+        assert releasing.wait(3)
+        return {"job_id": "only-job"}
+
+    monkeypatch.setattr(studio.job_registry, "create_job", slow_create_job)
+
+    def first():
+        try:
+            store.approve(plan["plan_id"], [candidate_id])
+        except Exception as exc:
+            errors.append(exc)
+
+    thread = threading.Thread(target=first)
+    thread.start()
+    try:
+        assert entering.wait(3)
+        with pytest.raises(studio.StudioError, match="zaten uygulamaya"):
+            store.approve(plan["plan_id"], [candidate_id])
+    finally:
+        releasing.set()
+        thread.join(timeout=3)
+
+    assert not errors
+    assert len(jobs) == 1
