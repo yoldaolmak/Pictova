@@ -237,7 +237,7 @@ def test_studio_never_calls_uncertain_outcomes_published(studio_server, outcome,
             page.locator("#apply-button").click()
             page.wait_for_function(
                 "(label) => document.querySelector('#plan-state').textContent === label",
-                label,
+                arg=label,
             )
             assert "Yayın doğrulandı" not in page.locator("#notice").inner_text()
             assert page.locator("#notice").is_visible()
