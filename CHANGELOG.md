@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
+- Remove non-blocking, tokenless external coverage uploads that logged failures despite green CI; keep coverage reporting in GitHub Actions logs.
 - Validate size, shape and completion status of OpenAI-compatible local vision responses; exclude raw model text and HTTP error bodies from operator-visible failures.
 - Add an offline OpenRouter-style synthetic model contract test that exercises real metadata, quality rejection and failure fallback without API credentials.
 - Limit DepositPhotos licensed image transfers and resumed/cached files to 64 MiB, and reject unsafe asset IDs before constructing paths or licensing requests.
