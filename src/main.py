@@ -32,6 +32,7 @@ from src.core.metadata_generator import (
     build_basic_metadata,
 )
 from src.services.wordpress import fetch_post_context, upload_images_batch
+
 # Keep the historical module-level search aliases available to legacy callers.
 from src.pictova.engine.search import (  # noqa: F401
     CONTENT_FILTER_SQL,
