@@ -4,6 +4,27 @@ Pictova operates on local photo indexes, private article content, external
 image services and WordPress credentials. A successful offline test run is
 not a security certification or a real-world visual-accuracy evaluation.
 
+## Studio browser boundary
+
+The Studio page is static and contains no site data until the browser provides
+a valid local Bearer token. The token is bootstrapped via a URL fragment (not
+sent over HTTP) and immediately removed from the address bar. Studio
+requests require loopback Host validation and same-origin browser POSTs;
+existing CLI HTTP writes still reject browser Origin headers. Do not expose
+the listener to a network or embed it in a remote webpage.
+
+Browser-supplied URLs can resolve only to configured WordPress HTTPS domains,
+through their configured WP REST API endpoint, not arbitrary sites or IPs.
+The server owns a bounded, expiring, single-use mapping of preview candidate
+IDs to source paths and H2/H3 assignments. Browser requests cannot submit
+source paths or assign arbitrary headings. The WordPress post is checked again
+under the post's existing write lock before any paid licensed download.
+
+Local thumbnail responses are authenticated, bounded and do not reveal
+original file paths. DepositPhotos previews are served by the remote provider
+in the browser and may disclose the browser's network address to that provider;
+they must not be treated as private local photos.
+
 ## Operational boundaries
 
 - Run the HTTP service only on loopback with a private

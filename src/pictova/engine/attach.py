@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from hashlib import sha256
 import fcntl
 from pathlib import Path
 import re
-from typing import Any, Dict, Tuple
+from typing import Any, Callable, Dict, Tuple
 
 from src.core.media_publish import build_publish_slug_candidates, embed_metadata, ensure_unique_slug
 from src.pictova.profiles.yoldaolmak import apply_environment
@@ -596,6 +597,8 @@ def execute_native_attach(
     request: Dict[str, Any],
     post_context: Dict[str, Any],
     constraints: Dict[str, Any],
+    selection_loader: Callable[[], Dict[str, Any]] | None = None,
+    expected_post_digest: str | None = None,
 ) -> Dict[str, Any]:
     failure = _validate_execute_request(
         site=site,
@@ -622,6 +625,8 @@ def execute_native_attach(
             request=request,
             post_context=post_context,
             constraints=constraints,
+            selection_loader=selection_loader,
+            expected_post_digest=expected_post_digest,
         )
     finally:
         _release_attach_lock(lock)
@@ -633,19 +638,52 @@ def _execute_native_attach_locked(
     request: Dict[str, Any],
     post_context: Dict[str, Any],
     constraints: Dict[str, Any],
+    selection_loader: Callable[[], Dict[str, Any]] | None = None,
+    expected_post_digest: str | None = None,
 ) -> Dict[str, Any]:
     """Run one attach while this post's process lock is held."""
 
     started = datetime.now(timezone.utc)
-    selection = resolve_source_images(
-        source=request.get("source", "semantic"),
-        count=request.get("count"),
-        name=request.get("name"),
-        query=request.get("query"),
-        location_query=request.get("location_query"),
-        content_filter=request.get("content_filter"),
-        post_context=post_context,
-    )
+    if expected_post_digest is not None:
+        # Re-read beneath the existing per-post lock *before* licensed
+        # downloads. The WordPress commit also checks for later edit races.
+        live = fetch_post_context(int(request["post_id"]), site=site)
+        raw = (str(live.get("modified") or "") + "\n" + str(live.get("content_raw") or "")).encode("utf-8")
+        if not live or sha256(raw).hexdigest() != expected_post_digest:
+            return build_failed_attach_result(
+                site=site,
+                post_id=request["post_id"],
+                request=request,
+                post_context=post_context,
+                constraints=constraints,
+                warning="WordPress post changed since Studio preview; nothing was downloaded or published",
+            )
+        post_context = live
+
+    if selection_loader is not None:
+        try:
+            selection = selection_loader()
+            if not isinstance(selection, dict) or not isinstance(selection.get("files"), list):
+                raise ValueError("Invalid approved selection")
+        except Exception as exc:
+            return build_failed_attach_result(
+                site=site,
+                post_id=request.get("post_id"),
+                request=request,
+                post_context=post_context,
+                constraints=constraints,
+                warning=f"Approved candidate preparation failed ({type(exc).__name__}); nothing was published",
+            )
+    else:
+        selection = resolve_source_images(
+            source=request.get("source", "semantic"),
+            count=request.get("count"),
+            name=request.get("name"),
+            query=request.get("query"),
+            location_query=request.get("location_query"),
+            content_filter=request.get("content_filter"),
+            post_context=post_context,
+        )
     requested_count = int(request.get("count") or 0)
     selected_assets = list(selection.get("files", []))
     selection_warnings: list[str] = list(selection.get("warnings", []))

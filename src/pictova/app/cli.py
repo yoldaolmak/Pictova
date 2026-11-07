@@ -115,6 +115,11 @@ def build_parser() -> argparse.ArgumentParser:
     serve_cmd.add_argument("--host", default="127.0.0.1")
     serve_cmd.add_argument("--port", type=int, default=8040)
 
+    studio_cmd = sub.add_parser("studio", help="Open the authenticated, local editorial review panel")
+    studio_cmd.add_argument("--host", default="127.0.0.1")
+    studio_cmd.add_argument("--port", type=int, default=8040)
+    studio_cmd.add_argument("--no-open", action="store_true", help="Do not launch a browser")
+
     health_cmd = sub.add_parser("health")
     health_cmd.add_argument(
         "--verify-upload",
@@ -223,6 +228,30 @@ def _dispatch(args, parser, out) -> int:
         result = run_health_check(verify_upload=getattr(args, "verify_upload", False))
         _print_json(result, out)
         return 0 if result.get("status") == "ok" else 1
+
+    if args.command == "studio":
+        import os
+        import secrets
+        from urllib.parse import quote
+        import webbrowser
+
+        configured = os.environ.get("PICTOVA_HTTP_TOKEN")
+        if args.no_open and not configured:
+            parser.error("studio --no-open requires PICTOVA_HTTP_TOKEN in the environment")
+        token = configured or secrets.token_urlsafe(36)
+        server = serve(host=args.host, port=args.port, token_override=token)
+        host, port = server.server_address
+        browser_url = f"http://{host}:{port}/studio#token={quote(token)}"
+        try:
+            if not args.no_open:
+                webbrowser.open(browser_url)
+            _print_json({"command": "studio", "status": "ok", "url": f"http://{host}:{port}/studio"})
+            server.serve_forever()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            server.server_close()
+        return 0
 
     if args.command == "serve":
         server = serve(host=args.host, port=args.port)
