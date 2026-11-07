@@ -1,4 +1,4 @@
-"""Minimal HTTP server for the VIL application surface."""
+"""Authenticated, loopback-only HTTP server for Pictova CLI and Studio."""
 
 from __future__ import annotations
 
@@ -7,7 +7,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import hmac
 import json
 import os
+from pathlib import Path
 from typing import Any, Callable, Dict, Tuple
+from urllib.parse import parse_qs, urlsplit
 
 from src.pictova.app.api import (
     attach_images,
@@ -21,11 +23,17 @@ from src.pictova.app.api import (
     stats_summary,
 )
 from src.pictova.app.state import job_registry
+from src.pictova.app.studio import StudioError, studio_plans
 from src.pictova.config import load_project_env
 
 
 RouteHandler = Callable[[Dict[str, Any]], Dict[str, Any]]
 MAX_BODY_BYTES = 1024 * 1024
+_STUDIO_ASSETS = {
+    "/studio": ("studio.html", "text/html; charset=utf-8"),
+    "/studio/app.js": ("studio.js", "text/javascript; charset=utf-8"),
+    "/studio/style.css": ("studio.css", "text/css; charset=utf-8"),
+}
 
 
 def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: Dict[str, Any]) -> None:
@@ -33,6 +41,8 @@ def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: Dict[s
     handler.send_response(status)
     handler.send_header("Content-Type", "application/json; charset=utf-8")
     handler.send_header("Content-Length", str(len(body)))
+    handler.send_header("Cache-Control", "no-store")
+    handler.send_header("X-Content-Type-Options", "nosniff")
     if status == HTTPStatus.UNAUTHORIZED:
         handler.send_header("WWW-Authenticate", "Bearer")
     handler.end_headers()
@@ -66,6 +76,31 @@ def _load_json_body(handler: BaseHTTPRequestHandler) -> Tuple[Dict[str, Any] | N
     if not isinstance(payload, dict):
         return None, "json body must be an object"
     return payload, None
+
+
+def _valid_host(values: list[str], port: int) -> bool:
+    """Refuse DNS rebinding and alternate HTTP authorities."""
+    return len(values) == 1 and values[0] in {f"localhost:{port}", f"127.0.0.1:{port}"}
+
+
+def _byte_response(handler: BaseHTTPRequestHandler, status: int, payload: bytes, media_type: str) -> None:
+    handler.send_response(status)
+    handler.send_header("Content-Type", media_type)
+    handler.send_header("Content-Length", str(len(payload)))
+    handler.send_header("Cache-Control", "no-store")
+    handler.send_header("X-Content-Type-Options", "nosniff")
+    handler.send_header("X-Frame-Options", "DENY")
+    handler.send_header("Referrer-Policy", "no-referrer")
+    handler.send_header("Cross-Origin-Resource-Policy", "same-origin")
+    if media_type.startswith("text/html"):
+        handler.send_header(
+            "Content-Security-Policy",
+            "default-src 'none'; script-src 'self'; style-src 'self'; "
+            "img-src 'self' blob: https:; connect-src 'self'; "
+            "base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+        )
+    handler.end_headers()
+    handler.wfile.write(payload)
 
 
 def build_handler(*, token: str) -> type[BaseHTTPRequestHandler]:
@@ -105,8 +140,38 @@ def build_handler(*, token: str) -> type[BaseHTTPRequestHandler]:
         def log_message(self, format: str, *args: Any) -> None:
             return
 
+        def _host_ok(self) -> bool:
+            if _valid_host(self.headers.get_all("Host") or [], self.server.server_port):
+                return True
+            _json_response(self, HTTPStatus.BAD_REQUEST, {"status": "failed", "warning": "invalid local host"})
+            return False
+
         def do_GET(self) -> None:  # noqa: N802
+            if not self._host_ok():
+                return
+            if self.path in _STUDIO_ASSETS:
+                filename, media_type = _STUDIO_ASSETS[self.path]
+                asset = Path(__file__).parent / "static" / filename
+                try:
+                    data = asset.read_bytes()
+                except OSError:
+                    _json_response(self, HTTPStatus.NOT_FOUND, {"status": "failed", "warning": "asset unavailable"})
+                    return
+                _byte_response(self, HTTPStatus.OK, data, media_type)
+                return
             if not self._authorized():
+                return
+            if self.path.startswith("/studio/preview?"):
+                query = parse_qs(urlsplit(self.path).query)
+                try:
+                    photo = studio_plans.preview(
+                        query.get("plan", [""])[0],
+                        query.get("candidate", [""])[0],
+                    )
+                except StudioError as exc:
+                    _json_response(self, HTTPStatus.NOT_FOUND, {"status": "failed", "warning": str(exc)})
+                    return
+                _byte_response(self, HTTPStatus.OK, photo, "image/jpeg")
                 return
             if self.path == "/":
                 _json_response(
@@ -158,17 +223,40 @@ def build_handler(*, token: str) -> type[BaseHTTPRequestHandler]:
             _json_response(self, code, result)
 
         def do_POST(self) -> None:  # noqa: N802
-            if not self._authorized():
+            if not self._host_ok() or not self._authorized():
                 return
-            if self.headers.get("Origin"):
+            origin = self.headers.get("Origin")
+            studio_route = self.path in {"/studio/plan", "/studio/apply"}
+            if origin and (not studio_route or origin != f"http://{self.headers['Host']}"):
                 _json_response(
-                    self,
-                    HTTPStatus.FORBIDDEN,
-                    {
-                        "status": "failed",
-                        "warning": "browser-origin requests are not supported",
-                    },
+                    self, HTTPStatus.FORBIDDEN,
+                    {"status": "failed", "warning": "cross-origin browser request refused"},
                 )
+                return
+            if studio_route:
+                payload, error = _load_json_body(self)
+                if error:
+                    status = HTTPStatus.REQUEST_ENTITY_TOO_LARGE if error == "request body too large" else HTTPStatus.BAD_REQUEST
+                    _json_response(self, status, {"status": "failed", "warning": error})
+                    return
+                try:
+                    if self.path == "/studio/plan":
+                        result = studio_plans.plan((payload or {}).get("url"), (payload or {}).get("count", 4))
+                        status = HTTPStatus.OK
+                    else:
+                        result = studio_plans.approve(
+                            (payload or {}).get("plan_id"),
+                            (payload or {}).get("accepted_ids"),
+                            confirm_paid=(payload or {}).get("confirm_paid", False),
+                        )
+                        status = HTTPStatus.ACCEPTED
+                except StudioError as exc:
+                    result = {"status": "failed", "warning": str(exc)}
+                    status = HTTPStatus.BAD_REQUEST
+                except Exception:
+                    result = {"status": "failed", "warning": "Studio request failed"}
+                    status = HTTPStatus.INTERNAL_SERVER_ERROR
+                _json_response(self, status, result)
                 return
             if self.path == "/jobs/attach":
                 payload, error = _load_json_body(self)
@@ -225,13 +313,13 @@ def build_handler(*, token: str) -> type[BaseHTTPRequestHandler]:
     return VILRequestHandler
 
 
-def serve(*, host: str = "127.0.0.1", port: int = 8040) -> ThreadingHTTPServer:
+def serve(*, host: str = "127.0.0.1", port: int = 8040, token_override: str | None = None) -> ThreadingHTTPServer:
     # There is no HTTPS termination here; never expose the bearer token or
     # powerful WordPress write endpoints on a network interface.
     if host not in {"127.0.0.1", "localhost"}:
         raise ValueError("Pictova HTTP server is restricted to loopback; use the CLI for remote workflows")
     load_project_env()
-    token = os.environ.get("PICTOVA_HTTP_TOKEN", "")
+    token = token_override if token_override is not None else os.environ.get("PICTOVA_HTTP_TOKEN", "")
     return ThreadingHTTPServer((host, port), build_handler(token=token))
 
 
