@@ -1,4 +1,4 @@
-"""Thin API surface over the canonical VIL app jobs."""
+"""Pictova API adapters over the native engine and job runner."""
 
 from __future__ import annotations
 
