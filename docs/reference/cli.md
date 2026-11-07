@@ -48,4 +48,6 @@ pictova guard --site yoldaolmak --post 265713 --reset
 ```
 
 `--repair`, `--reposition`, `--adopt`, and `--reset` are write operations and
-are intended for explicitly managed media only.
+are intended for explicitly managed media only. If a managed image shares a
+Gutenberg gallery with untracked media or editorial gallery content, the
+mutation is rejected rather than deleting the entire gallery.
