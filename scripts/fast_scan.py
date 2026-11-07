@@ -283,7 +283,7 @@ def main() -> None:
         daily_count = con.execute(
             """
             SELECT count(*) FROM asset_index
-            WHERE vision_scan_status = 'done'
+            WHERE vision_scan_status IN ('done', 'error', 'scanning')
               AND date(vision_last_scanned_at) = date('now')
             """
         ).fetchone()[0]
