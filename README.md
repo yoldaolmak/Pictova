@@ -120,5 +120,8 @@ tests/                 regression and contract tests
 python3.10 -m pytest -q
 ```
 
+CI runs the same tests on Python 3.10–3.12 and enforces Flake8/Black.
+Coverage is printed in the CI log; no external coverage upload is attempted.
+
 The local `data/` caches, Photos index, provider cache, manifests, and agent
 indexes are intentionally ignored by Git.
