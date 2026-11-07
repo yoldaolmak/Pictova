@@ -670,14 +670,14 @@ def _execute_native_attach_locked(
             )
     else:
         selection = resolve_source_images(
-        source=request.get("source", "semantic"),
-        count=request.get("count"),
-        name=request.get("name"),
-        query=request.get("query"),
-        location_query=request.get("location_query"),
-        content_filter=request.get("content_filter"),
-        post_context=post_context,
-    )
+            source=request.get("source", "semantic"),
+            count=request.get("count"),
+            name=request.get("name"),
+            query=request.get("query"),
+            location_query=request.get("location_query"),
+            content_filter=request.get("content_filter"),
+            post_context=post_context,
+        )
     requested_count = int(request.get("count") or 0)
     selected_assets = list(selection.get("files", []))
     selection_warnings: list[str] = list(selection.get("warnings", []))
