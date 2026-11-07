@@ -30,8 +30,17 @@ _EDITORIAL_FILLER_RE = re.compile(
 # Generic Turkish publishing labels — the kind of word an article tail is made
 # of. These name a document type, never a place or a particular article.
 _PUBLISHING_LABEL_WORDS = {
-    "rehber", "rehberi", "ipuçları", "ipuclari", "notları", "notlari",
-    "tavsiyeleri", "tavsiyesi", "listesi", "yazısı", "yazisi",
+    "rehber",
+    "rehberi",
+    "ipuçları",
+    "ipuclari",
+    "notları",
+    "notlari",
+    "tavsiyeleri",
+    "tavsiyesi",
+    "listesi",
+    "yazısı",
+    "yazisi",
 }
 
 
@@ -51,11 +60,7 @@ def _strip_article_title_echo(title: str, post_context: Dict[str, Any]) -> str:
     the post itself plus a short list of document-type labels, so a new article
     never needs a new pattern here.
     """
-    post_words = {
-        _fold_word(word)
-        for word in re.split(r"\s+", str(post_context.get("title") or ""))
-        if word.strip()
-    }
+    post_words = {_fold_word(word) for word in re.split(r"\s+", str(post_context.get("title") or "")) if word.strip()}
     removable = (post_words | {_fold_word(w) for w in _PUBLISHING_LABEL_WORDS}) - {""}
     if not removable:
         return title
@@ -158,9 +163,9 @@ def _caption_section_text(post_context: Dict[str, Any], heading_text: str) -> st
         for match in heading_pattern.finditer(content):
             if _heading_subject(_plain_article_text(match.group(2))).casefold() != subject:
                 continue
-            following = content[match.end():]
+            following = content[match.end() :]
             next_heading = heading_pattern.search(following)
-            section = following[:next_heading.start()] if next_heading else following
+            section = following[: next_heading.start()] if next_heading else following
             return _plain_article_text(_remove_article_headings(section))
     return _plain_article_text(_remove_article_headings(content))
 
@@ -173,14 +178,14 @@ def _strip_leading_heading_prefix(sentence: str) -> str:
     ):
         if match.start() == 0:
             continue
-        prefix = sentence[:match.start()].strip()
+        prefix = sentence[: match.start()].strip()
         words = re.findall(r"[A-Za-zÇĞİÖŞÜçğıöşü]+", prefix)
         if (
             len(words) >= 3
             and not re.search(r"[.!?]", prefix)
             and sum(word[0].isupper() for word in words) >= len(words) - 1
         ):
-            return sentence[match.start():].strip()
+            return sentence[match.start() :].strip()
     return sentence
 
 
@@ -315,10 +320,7 @@ def apply_editorial_metadata_policy(
     if isinstance(keywords, str):
         keywords = [part.strip() for part in keywords.split(",")]
     if isinstance(keywords, list):
-        result["keywords"] = [
-            cleaned for item in keywords
-            if (cleaned := _clean_editorial_text(item, limit=40))
-        ][:5]
+        result["keywords"] = [cleaned for item in keywords if (cleaned := _clean_editorial_text(item, limit=40))][:5]
     return result
 
 
@@ -326,14 +328,18 @@ def _db_cached_metadata(image_path: str) -> Optional[Dict[str, Any]]:
     """Check if previously scanned metadata exists in the visual memory DB. Returns it if found."""
     try:
         from src.pictova.config import get_visual_memory_db_path
+
         db_path = str(get_visual_memory_db_path())
         con = sqlite3.connect(db_path)
-        row = con.execute("""
+        row = con.execute(
+            """
             SELECT ai_keywords_json, scene, activity, summary
             FROM asset_index
             WHERE source_path = ? AND vision_scan_status = 'done'
             LIMIT 1
-        """, [image_path]).fetchone()
+        """,
+            [image_path],
+        ).fetchone()
         con.close()
         if not row:
             return None
@@ -391,19 +397,33 @@ def _kemal_voice_caption(summary: str, scene: str, location: str, keywords: list
     # If no summary or English: Turkish location-based fallback
     _skip = {"general", "other", "unknown", "various", "misc"}
     scene_tr_map = {
-        "coast": "kıyı", "mountain": "dağ", "city": "şehir", "village": "köy",
-        "forest": "orman", "lake": "göl", "valley": "vadi", "beach": "plaj",
-        "castle": "kale", "ruins": "harabe", "market": "çarşı", "nature": "doğa",
-        "landscape": "manzara", "harbor": "liman", "port": "liman",
+        "coast": "kıyı",
+        "mountain": "dağ",
+        "city": "şehir",
+        "village": "köy",
+        "forest": "orman",
+        "lake": "göl",
+        "valley": "vadi",
+        "beach": "plaj",
+        "castle": "kale",
+        "ruins": "harabe",
+        "market": "çarşı",
+        "nature": "doğa",
+        "landscape": "manzara",
+        "harbor": "liman",
+        "port": "liman",
     }
     # Try to use important keywords in Turkish, skip the rest
-    kw_clean = [k for k in keywords[:4]
-                if k.lower() not in _skip
-                and k.lower() not in (location or "").lower()
-                and k.lower() not in (scene or "").lower()]
+    kw_clean = [
+        k
+        for k in keywords[:4]
+        if k.lower() not in _skip
+        and k.lower() not in (location or "").lower()
+        and k.lower() not in (scene or "").lower()
+    ]
 
     scene_tr = scene_tr_map.get(scene.lower(), "") if (scene and scene.lower() not in _skip) else ""
-    
+
     if location and scene_tr:
         caption = f"{location} {scene_tr}"
     elif location:
@@ -433,22 +453,51 @@ def _enrich_from_cache(cached: Dict, post_context: Dict) -> Dict:
 
     # Translate English scene terms to Turkish
     _scene_tr: dict[str, str] = {
-        "coast": "kıyı", "coastal": "kıyı", "shore": "kıyı",
-        "beach": "plaj", "bay": "koy", "harbor": "liman", "harbour": "liman",
-        "port": "liman", "sea": "deniz", "ocean": "deniz",
-        "island": "ada", "peninsula": "yarımada",
-        "mountain": "dağ", "hill": "tepe", "cliff": "uçurum",
-        "valley": "vadi", "plateau": "yayla", "cave": "mağara",
-        "waterfall": "şelale", "lake": "göl", "river": "nehir",
-        "forest": "orman", "nature": "doğa", "landscape": "manzara",
-        "village": "köy", "town": "kasaba", "city": "şehir",
-        "street": "sokak", "market": "çarşı", "square": "meydan",
-        "castle": "kale", "fortress": "kale", "ruins": "harabe",
-        "mosque": "cami", "church": "kilise", "temple": "tapınak",
-        "bridge": "köprü", "lighthouse": "deniz feneri",
-        "garden": "bahçe", "park": "park",
-        "food": "yemek", "restaurant": "restoran",
-        "sunset": "gün batımı", "sunrise": "gün doğumu", "night": "gece",
+        "coast": "kıyı",
+        "coastal": "kıyı",
+        "shore": "kıyı",
+        "beach": "plaj",
+        "bay": "koy",
+        "harbor": "liman",
+        "harbour": "liman",
+        "port": "liman",
+        "sea": "deniz",
+        "ocean": "deniz",
+        "island": "ada",
+        "peninsula": "yarımada",
+        "mountain": "dağ",
+        "hill": "tepe",
+        "cliff": "uçurum",
+        "valley": "vadi",
+        "plateau": "yayla",
+        "cave": "mağara",
+        "waterfall": "şelale",
+        "lake": "göl",
+        "river": "nehir",
+        "forest": "orman",
+        "nature": "doğa",
+        "landscape": "manzara",
+        "village": "köy",
+        "town": "kasaba",
+        "city": "şehir",
+        "street": "sokak",
+        "market": "çarşı",
+        "square": "meydan",
+        "castle": "kale",
+        "fortress": "kale",
+        "ruins": "harabe",
+        "mosque": "cami",
+        "church": "kilise",
+        "temple": "tapınak",
+        "bridge": "köprü",
+        "lighthouse": "deniz feneri",
+        "garden": "bahçe",
+        "park": "park",
+        "food": "yemek",
+        "restaurant": "restoran",
+        "sunset": "gün batımı",
+        "sunrise": "gün doğumu",
+        "night": "gece",
     }
     scene_tr = _scene_tr.get(scene.lower(), scene) if scene else ""
 
@@ -581,7 +630,7 @@ def build_native_metadata_map(
             enriched = _enrich_from_cache(cached, ctx)
             enriched["visual_evidence"] = _visual_evidence(cached)
             _apply_heading_contract(enriched, h_info)
-                
+
             if "pictova_unsplash" in str(image_file):
                 parts = Path(image_file).stem.split("-by-")
                 publisher = parts[-1].replace("_", " ") if len(parts) > 1 else "Unknown"
@@ -611,7 +660,7 @@ def build_native_metadata_map(
             # vision model actually found in the pixels.
             analysis["visual_evidence"] = _visual_evidence(analysis)
             _apply_heading_contract(analysis, h_info)
-                
+
             metadata_dict[image_file] = apply_editorial_metadata_policy(
                 analysis,
                 heading_text=heading_text,
@@ -620,9 +669,7 @@ def build_native_metadata_map(
             )
             warnings.append(f"{Path(image_file).name}: OK ({source})")
         except RuntimeError as exc:
-            raise RuntimeError(
-                f"Image analysis failed: {Path(image_file).name}\n{exc}"
-            ) from exc
+            raise RuntimeError(f"Image analysis failed: {Path(image_file).name}\n{exc}") from exc
 
     return metadata_dict, warnings
 

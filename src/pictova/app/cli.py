@@ -117,7 +117,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     health_cmd = sub.add_parser("health")
     health_cmd.add_argument(
-        "--verify-upload", action="store_true",
+        "--verify-upload",
+        action="store_true",
         help="Yayın yolunu gerçekten dene: 1x1 PNG yükleyip hemen siler",
     )
     return parser

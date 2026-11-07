@@ -51,18 +51,22 @@ def _release_attach_lock(handle: Any) -> None:
 def _photo_index_stats() -> dict:
     """Visual memory DB summary statistics."""
     import sqlite3 as _sq
+
     try:
         from src.pictova.config import get_visual_memory_db_path
+
         db = get_visual_memory_db_path()
         con = _sq.connect(str(db))
-        row = con.execute("""
+        row = con.execute(
+            """
             SELECT
               COUNT(*) AS total,
               SUM(CASE WHEN source_path != '' THEN 1 ELSE 0 END) AS local_count,
               SUM(CASE WHEN source_path  = '' THEN 1 ELSE 0 END) AS icloud_count,
               SUM(CASE WHEN vision_scan_status = 'done' THEN 1 ELSE 0 END) AS scanned
             FROM asset_index WHERE is_personal = 0
-        """).fetchone()
+        """
+        ).fetchone()
         con.close()
         return {"total": row[0], "local": row[1], "icloud": row[2], "vision_scanned": row[3]}
     except Exception as exc:
@@ -191,12 +195,40 @@ def apply_semantic_gallery_policy(
 
 
 _SLUG_GENERIC = {
-    "gezilecek", "yerler", "yerleri", "gezi", "rehberi", "rehber",
-    "nerede", "nasil", "nasil-gidilir", "seyahat", "travel", "guide",
-    "rota", "rotasi", "rotalar", "detayli", "guncel", "notlari",
-    "ve", "ile", "icin", "the", "and", "bir",
-    "yakin", "yakın", "ulasim", "ulaşım", "gecis", "geçiş",
-    "tavsiyelerim", "tavsiyesi", "ipuclari", "ipuçları",
+    "gezilecek",
+    "yerler",
+    "yerleri",
+    "gezi",
+    "rehberi",
+    "rehber",
+    "nerede",
+    "nasil",
+    "nasil-gidilir",
+    "seyahat",
+    "travel",
+    "guide",
+    "rota",
+    "rotasi",
+    "rotalar",
+    "detayli",
+    "guncel",
+    "notlari",
+    "ve",
+    "ile",
+    "icin",
+    "the",
+    "and",
+    "bir",
+    "yakin",
+    "yakın",
+    "ulasim",
+    "ulaşım",
+    "gecis",
+    "geçiş",
+    "tavsiyelerim",
+    "tavsiyesi",
+    "ipuclari",
+    "ipuçları",
 }
 
 
@@ -207,10 +239,7 @@ def derive_location_query(post_context: Dict[str, Any]) -> str:
     usually enough: 'sinop-gezilecek-yerler' → 'sinop'.
     """
     slug = str(post_context.get("slug") or "").strip()
-    tokens = [
-        t for t in slug.split("-")
-        if t and t not in _SLUG_GENERIC and len(t) >= 3 and not t.isdigit()
-    ]
+    tokens = [t for t in slug.split("-") if t and t not in _SLUG_GENERIC and len(t) >= 3 and not t.isdigit()]
     if tokens:
         return tokens[0]
     title = str(post_context.get("title") or "").strip()
@@ -366,9 +395,7 @@ def _validate_execute_request(
     constraints: Dict[str, Any],
 ) -> Dict[str, Any] | None:
     """Additional validation for execute_native_attach — post_id is required."""
-    failure = validate_attach_request(
-        site=site, request=request, post_context=post_context, constraints=constraints
-    )
+    failure = validate_attach_request(site=site, request=request, post_context=post_context, constraints=constraints)
     if failure:
         return failure
     if not request.get("post_id"):
@@ -509,7 +536,9 @@ def finalize_publish_assets(
     finalized_files: list[str] = []
     finalized_metadata: Dict[str, Dict[str, Any]] = {}
     finalized_details: Dict[str, Dict[str, Any]] = {}
-    target_dir = Path(work_dir) if work_dir else (Path(processed_images[0]).parent if processed_images else Path("/tmp"))
+    target_dir = (
+        Path(work_dir) if work_dir else (Path(processed_images[0]).parent if processed_images else Path("/tmp"))
+    )
 
     for file in processed_images:
         meta = dict(metadata_dict.get(file, {}))
@@ -622,10 +651,7 @@ def _execute_native_attach_locked(
             request=request,
             post_context=post_context,
             constraints=constraints,
-            warning=(
-                f"Strict selection produced 0/{requested_count} exact matches; "
-                "nothing was uploaded"
-            ),
+            warning=(f"Strict selection produced 0/{requested_count} exact matches; " "nothing was uploaded"),
         )
         failure["selected_assets"] = selected_assets
         failure["warnings"] = selection_warnings + failure["warnings"]
@@ -682,10 +708,7 @@ def _execute_native_attach_locked(
             request=request,
             post_context=post_context,
             constraints=constraints,
-            warning=(
-                f"Quality gate approved 0/{len(selected_assets)} selected assets; "
-                "nothing was uploaded"
-            ),
+            warning=(f"Quality gate approved 0/{len(selected_assets)} selected assets; " "nothing was uploaded"),
         )
         failure["selected_assets"] = selected_assets
         failure["rejected_assets"] = blocked

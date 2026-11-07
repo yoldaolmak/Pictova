@@ -29,11 +29,43 @@ FORBIDDEN_FALLBACK_TOKENS = {"genel", "gorsel", "gorunum", "gorunumu"}
 # place nor identify what is pictured, so retaining them produces slugs such
 # as ``karadag-kisa-atmosfer`` rather than a useful asset name.
 EDITORIAL_SLUG_NOISE_TOKENS = {
-    "en", "iyi", "kisa", "atmosfer", "kare", "kadraj", "yakalamak",
-    "harika", "buyuleyici", "essiz", "muhtesem",
-    "guzel", "guzellik", "kesfet", "kesfedin", "keyifli", "unutulmaz",
-    "etmek", "gercek", "gercekten", "buyuk", "avantaj", "avantajlari",
-    "den", "dan", "de", "da", "a", "e", "na", "ne", "ya", "ye", "mi", "mı", "mu", "mü",
+    "en",
+    "iyi",
+    "kisa",
+    "atmosfer",
+    "kare",
+    "kadraj",
+    "yakalamak",
+    "harika",
+    "buyuleyici",
+    "essiz",
+    "muhtesem",
+    "guzel",
+    "guzellik",
+    "kesfet",
+    "kesfedin",
+    "keyifli",
+    "unutulmaz",
+    "etmek",
+    "gercek",
+    "gercekten",
+    "buyuk",
+    "avantaj",
+    "avantajlari",
+    "den",
+    "dan",
+    "de",
+    "da",
+    "a",
+    "e",
+    "na",
+    "ne",
+    "ya",
+    "ye",
+    "mi",
+    "mı",
+    "mu",
+    "mü",
 }
 
 GENERIC_POST_TOKENS = {
@@ -410,25 +442,16 @@ VISION_SCENE_REMAP = {
     "lighthouse": "denizfeneri",
 }
 
+
 def slugify(value: str) -> str:
     # Büyük harf Türkçe karakterleri ÖNCE dönüştür (İ.lower() → i̇ problemi)
     text = str(value or "").strip()
     text = (
-        text.replace("İ", "I")
-        .replace("Ş", "S")
-        .replace("Ç", "C")
-        .replace("Ğ", "G")
-        .replace("Ü", "U")
-        .replace("Ö", "O")
+        text.replace("İ", "I").replace("Ş", "S").replace("Ç", "C").replace("Ğ", "G").replace("Ü", "U").replace("Ö", "O")
     )
     text = text.lower()
     text = (
-        text.replace("ş", "s")
-        .replace("ç", "c")
-        .replace("ğ", "g")
-        .replace("ü", "u")
-        .replace("ö", "o")
-        .replace("ı", "i")
+        text.replace("ş", "s").replace("ç", "c").replace("ğ", "g").replace("ü", "u").replace("ö", "o").replace("ı", "i")
     )
     text = re.sub(r"[^a-z0-9]+", "-", text)
     return text.strip("-")
@@ -455,7 +478,6 @@ def is_good_slug(stem: str) -> bool:
 def _clean_tokens(value: str) -> list[str]:
     slug = slugify(value)
     return [token for token in slug.split("-") if token]
-
 
 
 def _extract_scene_phrases(text: str) -> list[str]:
@@ -585,7 +607,12 @@ def _extract_source_destination_tokens(source_metadata: Dict) -> list[str]:
     description_text = str(source_metadata.get("description", ""))
     for source in (description_text,):
         for token in _clean_tokens(source):
-            if token in BAD_SLUG_TOKENS or token in GENERIC_POST_TOKENS or token in GENERIC_SCENE_TOKENS or token in GENERIC_SOURCE_TOKENS:
+            if (
+                token in BAD_SLUG_TOKENS
+                or token in GENERIC_POST_TOKENS
+                or token in GENERIC_SCENE_TOKENS
+                or token in GENERIC_SOURCE_TOKENS
+            ):
                 continue
             if token.isdigit():
                 continue
@@ -664,7 +691,12 @@ def _extract_scene_tokens(metadata: Dict, destination_tokens: list[str]) -> list
             token = _normalize_scene_token(raw)
             if not token:
                 continue
-            if token in BAD_SLUG_TOKENS or token in GENERIC_POST_TOKENS or token in GENERIC_SCENE_TOKENS or token in GENERIC_SOURCE_TOKENS:
+            if (
+                token in BAD_SLUG_TOKENS
+                or token in GENERIC_POST_TOKENS
+                or token in GENERIC_SCENE_TOKENS
+                or token in GENERIC_SOURCE_TOKENS
+            ):
                 continue
             if token.isdigit():
                 continue
@@ -696,7 +728,12 @@ def _extract_vision_scene_tokens(metadata: Dict, destination_tokens: list[str]) 
         if not token:
             continue
         token = VISION_SCENE_REMAP.get(token, token)
-        if token in BAD_SLUG_TOKENS or token in GENERIC_POST_TOKENS or token in GENERIC_SCENE_TOKENS or token in GENERIC_SOURCE_TOKENS:
+        if (
+            token in BAD_SLUG_TOKENS
+            or token in GENERIC_POST_TOKENS
+            or token in GENERIC_SCENE_TOKENS
+            or token in GENERIC_SOURCE_TOKENS
+        ):
             continue
         if any(token in existing or existing in token for existing in seen):
             continue
@@ -794,11 +831,9 @@ def build_publish_slug(metadata: Dict, post_context: Dict | None, original_path:
         clean_heading = _heading_entity_for_slug(heading)
         heading_slug = slugify(clean_heading)
         heading_tokens = [
-            t for t in heading_slug.split("-")
-            if t
-            and t not in BAD_SLUG_TOKENS
-            and t not in GENERIC_POST_TOKENS
-            and t not in EDITORIAL_SLUG_NOISE_TOKENS
+            t
+            for t in heading_slug.split("-")
+            if t and t not in BAD_SLUG_TOKENS and t not in GENERIC_POST_TOKENS and t not in EDITORIAL_SLUG_NOISE_TOKENS
         ]
 
     # Ana lokasyon ve heading birleştir
@@ -830,8 +865,7 @@ def build_publish_slug(metadata: Dict, post_context: Dict | None, original_path:
     # Destination token'ları tamamla (heading yoksa normal lokasyonları al)
     if not destination_tokens:
         destination_tokens = _cleanup_destination_tokens(
-            _extract_source_destination_tokens(source_metadata or {})
-            or _extract_path_destination_tokens(original_path)
+            _extract_source_destination_tokens(source_metadata or {}) or _extract_path_destination_tokens(original_path)
         )
 
     # Scene (sahne) token'larını çıkar
@@ -889,7 +923,8 @@ def _slug_from_heading(heading: str, post_context: Dict) -> str | None:
         return None
     # Trailing digit-only tokens yasak (e.g. "h2", "1", "4")
     tokens = [
-        t for t in raw.split("-")
+        t
+        for t in raw.split("-")
         if t
         and t not in GENERIC_POST_TOKENS
         and t not in BAD_SLUG_TOKENS
@@ -910,7 +945,10 @@ def _slug_from_heading(heading: str, post_context: Dict) -> str | None:
     # filename and must not collide with a generic global attachment title.
     post_tokens = set(_clean_tokens(post_context.get("title", "")))
     post_tokens.update(_clean_tokens(post_context.get("slug", "")))
-    if post_tokens & {"uygulama", "uygulamasi", "uygulamalari", "uygulamalar", "app", "apps"} and "uygulama" not in combined:
+    if (
+        post_tokens & {"uygulama", "uygulamasi", "uygulamalari", "uygulamalar", "app", "apps"}
+        and "uygulama" not in combined
+    ):
         combined = (combined + ["uygulama"])[:5]
     slug = "-".join(combined)
     return slug if len(slug) >= 6 else None
@@ -933,9 +971,7 @@ def build_publish_slug_candidates(metadata: Dict, post_context: Dict | None, ori
         source_metadata = read_embedded_source_metadata(original_path)
         if source_metadata:
             metadata["_source_embedded"] = source_metadata
-    verified_locations = _cleanup_destination_tokens(
-        _extract_source_destination_tokens(source_metadata or {})
-    )
+    verified_locations = _cleanup_destination_tokens(_extract_source_destination_tokens(source_metadata or {}))
     verified_location_variants = _extract_source_destination_variants(source_metadata or {})
     scene_tokens = _cleanup_scene_tokens(_extract_scene_tokens(metadata, verified_locations))
     if not scene_tokens:
@@ -944,16 +980,12 @@ def build_publish_slug_candidates(metadata: Dict, post_context: Dict | None, ori
 
     if primary == slug_base or primary.startswith(slug_base + "-"):
         for location in verified_location_variants:
-            for variant in (
-                f"{slug_base}-{location}" if slug_base else location,
-            ):
+            for variant in (f"{slug_base}-{location}" if slug_base else location,):
                 clean = slugify(variant)
                 if clean and clean not in candidates:
                     candidates.append(clean)
         for scene in scene_tokens:
-            for variant in (
-                f"{slug_base}-{scene}" if slug_base else scene,
-            ):
+            for variant in (f"{slug_base}-{scene}" if slug_base else scene,):
                 clean = slugify(variant)
                 if clean and clean not in candidates:
                     candidates.append(clean)
@@ -1008,10 +1040,7 @@ def ensure_unique_slug(slug: str, used: set[str]) -> str:
 
 def ensure_publish_path(directory: Path, slug: str) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
-    existing_stems = {
-        path.stem
-        for path in directory.glob("*.webp")
-    }
+    existing_stems = {path.stem for path in directory.glob("*.webp")}
     resolved_slug = ensure_unique_slug(slug, existing_stems)
     return directory / f"{resolved_slug}.webp"
 

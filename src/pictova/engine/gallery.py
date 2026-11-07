@@ -71,10 +71,13 @@ def gallery_search(
         if len(rows) < count:
             like_val = f"%{query.lower()}%"
             seen_ids = {r["source_id"] for r in rows}
-            like_cond = " AND ".join(conditions + [
-                "(LOWER(COALESCE(city,'')) LIKE ? OR LOWER(COALESCE(state_province,'')) LIKE ? "
-                "OR LOWER(COALESCE(summary,'')) LIKE ?)"
-            ])
+            like_cond = " AND ".join(
+                conditions
+                + [
+                    "(LOWER(COALESCE(city,'')) LIKE ? OR LOWER(COALESCE(state_province,'')) LIKE ? "
+                    "OR LOWER(COALESCE(summary,'')) LIKE ?)"
+                ]
+            )
             fb_sql = f"""
                 SELECT source_id, source_path, filename, city, state_province, country,
                        quality_score, selection_score, orientation, scene, activity, summary,
@@ -107,7 +110,8 @@ def gallery_stats() -> Dict[str, Any]:
     db_path = str(get_visual_memory_db_path())
     con = sqlite3.connect(db_path)
     try:
-        row = con.execute("""
+        row = con.execute(
+            """
             SELECT
               COUNT(*) AS total,
               SUM(CASE WHEN source_path != '' THEN 1 ELSE 0 END) AS local_count,
@@ -115,7 +119,8 @@ def gallery_stats() -> Dict[str, Any]:
               SUM(CASE WHEN vision_scan_status = 'done' THEN 1 ELSE 0 END) AS scanned,
               COUNT(DISTINCT COALESCE(city, state_province)) AS unique_locations
             FROM asset_index WHERE is_personal = 0
-        """).fetchone()
+        """
+        ).fetchone()
     finally:
         con.close()
     return {

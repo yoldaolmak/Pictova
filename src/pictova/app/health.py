@@ -18,7 +18,8 @@ REQUIRED_MODULES = ["PIL", "requests", "numpy", "cv2"]
 def _db_stats(db_path: str) -> Dict:
     try:
         con = sqlite3.connect(db_path)
-        row = con.execute("""
+        row = con.execute(
+            """
             SELECT
               COUNT(*) AS total,
               SUM(CASE WHEN source_path != '' THEN 1 ELSE 0 END) AS local_count,
@@ -27,11 +28,16 @@ def _db_stats(db_path: str) -> Dict:
               SUM(CASE WHEN vision_scan_status = 'pending' THEN 1 ELSE 0 END) AS pending,
               SUM(CASE WHEN vision_scan_status = 'error'   THEN 1 ELSE 0 END) AS errors
             FROM asset_index WHERE is_personal = 0
-        """).fetchone()
+        """
+        ).fetchone()
         con.close()
         return {
-            "total": row[0], "local": row[1], "icloud": row[2],
-            "vision_scanned": row[3], "vision_pending": row[4], "vision_errors": row[5],
+            "total": row[0],
+            "local": row[1],
+            "icloud": row[2],
+            "vision_scanned": row[3],
+            "vision_pending": row[4],
+            "vision_errors": row[5],
         }
     except Exception as exc:
         return {"error": str(exc)}
@@ -40,8 +46,12 @@ def _db_stats(db_path: str) -> Dict:
 def _vision_chain_status() -> Dict:
     try:
         from src.pictova.engine.vision_chain import (
-            has_any_vision_source, _find_bin, _codex_check_login, _gemini_api_keys,
+            has_any_vision_source,
+            _find_bin,
+            _codex_check_login,
+            _gemini_api_keys,
         )
+
         return {
             # GEMINI_API_KEYS is the variable the analyzer actually prefers;
             # reporting only the singular name marked a working setup as unconfigured.
@@ -75,9 +85,7 @@ def run_health_check(*, verify_upload: bool = False) -> Dict:
         "visual_memory_db": db_path,
         "photo_index": _db_stats(db_path),
         "vision_chain": _vision_chain_status(),
-        "wordpress_sites": YOWordPressUploader.site_readiness(
-            verify_remote=True, verify_upload=verify_upload
-        ),
+        "wordpress_sites": YOWordPressUploader.site_readiness(verify_remote=True, verify_upload=verify_upload),
         "anthropic_key": bool(os.environ.get("ANTHROPIC_API_KEY")),
         "gemini_key": bool(os.environ.get("GEMINI_API_KEYS") or os.environ.get("GEMINI_API_KEY")),
         "modules": modules,

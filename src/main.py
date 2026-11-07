@@ -20,7 +20,12 @@ from src.utils.config import get_vil_dir, get_visual_memory_db_path, load_projec
 
 load_project_env()
 
-from src.core.media_publish import build_publish_slug_candidates, embed_metadata, ensure_publish_path, ensure_unique_slug
+from src.core.media_publish import (
+    build_publish_slug_candidates,
+    embed_metadata,
+    ensure_publish_path,
+    ensure_unique_slug,
+)
 from src.core.database import VisualMemoryComponent, VisualMemoryConfig, query_asset_from_visual_memory
 from src.core.processor import YOImageProcessor, get_vil_images
 from src.core.metadata_generator import (
@@ -63,28 +68,27 @@ def _free_destination(directory: Path, filename: str) -> Path:
     return destination
 
 
-
 class YOCommandParser:
     """Parse YO commands:
-      "5 foto yo 21312"                           → son 5 resim, yoldaolmak
-      "3 foto yo 21312 GE"                        → son 3, gezievreni
-      "unsplash:zadar sea 3 foto yo 21312"        → Unsplash'tan 3 resim
-      "kalenderis yo 21312"                       → isimle eşleşen resimler
-      "madura adası 5 foto insan yo 21312"        → semantic arama + upload
-      "madura adası 5 foto insan"                 → semantic arama, yerel çıktı
-      "Post: 1009 içinde insan olan 5 foto"       → post bağlamıyla semantic arama
+    "5 foto yo 21312"                           → son 5 resim, yoldaolmak
+    "3 foto yo 21312 GE"                        → son 3, gezievreni
+    "unsplash:zadar sea 3 foto yo 21312"        → Unsplash'tan 3 resim
+    "kalenderis yo 21312"                       → isimle eşleşen resimler
+    "madura adası 5 foto insan yo 21312"        → semantic arama + upload
+    "madura adası 5 foto insan"                 → semantic arama, yerel çıktı
+    "Post: 1009 içinde insan olan 5 foto"       → post bağlamıyla semantic arama
     """
 
-    PATTERN_COUNT        = r"^(\d+)\s+foto\s+yo\s+(\d+)(?:\s+(\w+))?$"
-    PATTERN_VIL_POST     = r"^vil\s+(\d+)\s+post\s+(\d+)(?:\s+(\w+))?$"
-    PATTERN_UNSPLASH     = r"^unsplash:([^0-9]+)\s+(\d+)\s+foto\s+yo\s+(\d+)(?:\s+(\w+))?$"
+    PATTERN_COUNT = r"^(\d+)\s+foto\s+yo\s+(\d+)(?:\s+(\w+))?$"
+    PATTERN_VIL_POST = r"^vil\s+(\d+)\s+post\s+(\d+)(?:\s+(\w+))?$"
+    PATTERN_UNSPLASH = r"^unsplash:([^0-9]+)\s+(\d+)\s+foto\s+yo\s+(\d+)(?:\s+(\w+))?$"
     # Semantic + upload: "madura adası 5 foto insan yo 21312 [GE]"
     PATTERN_SEMANTIC_POST = r"^(.+?)\s+(\d+)\s+foto(?:\s+(?!yo\b)(\S+))?\s+yo\s+(\d+)(?:\s+(\w+))?$"
-    PATTERN_NAME         = r"^(.+?)\s+yo\s+(\d+)(?:\s+(\w+))?$"
+    PATTERN_NAME = r"^(.+?)\s+yo\s+(\d+)(?:\s+(\w+))?$"
     # Semantic yerel: "madura adası 5 foto insan"
     PATTERN_SEMANTIC_ONLY = r"^(.+?)\s+(\d+)\s+foto(?:\s+(\S+))?$"
     # Post bağlamı: "Post: 1009 içinde insan olan 5 foto"
-    PATTERN_POST_QUERY   = r"^[Pp]ost:\s*(\d+)\s+(.+?)\s+(\d+)\s+foto\w*$"
+    PATTERN_POST_QUERY = r"^[Pp]ost:\s*(\d+)\s+(.+?)\s+(\d+)\s+foto\w*$"
 
     SITE_ALIASES = {
         "yo": "yoldaolmak",
@@ -108,8 +112,14 @@ class YOCommandParser:
             if dm:
                 site = cls.SITE_ALIASES.get((dm.group(4) or "yo").lower())
                 if site:
-                    return {"count": int(dm.group(2)), "name": None, "post_id": int(dm.group(3)),
-                            "site": site, "source": "deposit", "query": dm.group(1).strip()}
+                    return {
+                        "count": int(dm.group(2)),
+                        "name": None,
+                        "post_id": int(dm.group(3)),
+                        "site": site,
+                        "source": "deposit",
+                        "query": dm.group(1).strip(),
+                    }
 
         # 0b. Lokal dosya: "local:/path/a.jpg,/path/b.jpg yo 31818"
         if command.lower().startswith("local:"):
@@ -118,8 +128,14 @@ class YOCommandParser:
             if lm:
                 site = cls.SITE_ALIASES.get((lm.group(3) or "yo").lower())
                 if site:
-                    return {"count": None, "name": None, "post_id": int(lm.group(2)),
-                            "site": site, "source": "local", "query": lm.group(1).strip()}
+                    return {
+                        "count": None,
+                        "name": None,
+                        "post_id": int(lm.group(2)),
+                        "site": site,
+                        "source": "local",
+                        "query": lm.group(1).strip(),
+                    }
 
         # 1. Unsplash: "unsplash:zadar sea 3 foto yo 21312"
         m = re.match(cls.PATTERN_UNSPLASH, command)
@@ -127,8 +143,14 @@ class YOCommandParser:
             site = cls.SITE_ALIASES.get((m.group(4) or "yo").lower())
             if not site:
                 return None
-            return {"count": int(m.group(2)), "name": None, "post_id": int(m.group(3)),
-                    "site": site, "source": "unsplash", "query": m.group(1).strip()}
+            return {
+                "count": int(m.group(2)),
+                "name": None,
+                "post_id": int(m.group(3)),
+                "site": site,
+                "source": "unsplash",
+                "query": m.group(1).strip(),
+            }
 
         # 2. Sayı ile: "5 foto yo 21312"
         m = re.match(cls.PATTERN_COUNT, command)
@@ -136,8 +158,7 @@ class YOCommandParser:
             site = cls.SITE_ALIASES.get((m.group(3) or "yo").lower())
             if not site:
                 return None
-            return {"count": int(m.group(1)), "name": None, "post_id": int(m.group(2)),
-                    "site": site, "source": "vil"}
+            return {"count": int(m.group(1)), "name": None, "post_id": int(m.group(2)), "site": site, "source": "vil"}
 
         # 3. VIL kısa: "VIL 5 post 2345"
         m = re.match(cls.PATTERN_VIL_POST, command, re.I)
@@ -145,34 +166,44 @@ class YOCommandParser:
             site = cls.SITE_ALIASES.get((m.group(3) or "yo").lower())
             if not site:
                 return None
-            return {"count": int(m.group(1)), "name": None, "post_id": int(m.group(2)),
-                    "site": site, "source": "vil"}
+            return {"count": int(m.group(1)), "name": None, "post_id": int(m.group(2)), "site": site, "source": "vil"}
 
         # 4. Post bağlamı: "Post: 1009 içinde insan olan 5 foto"
         m = re.match(cls.PATTERN_POST_QUERY, command)
         if m:
-            post_id  = int(m.group(1))
+            post_id = int(m.group(1))
             raw_query = m.group(2).strip()
-            count    = int(m.group(3))
+            count = int(m.group(3))
             # query'den içerik filtresi çıkar (son kelime filtre olabilir)
             cf, loc = cls._split_filter_from_query(raw_query)
-            return {"count": count, "name": None, "post_id": post_id,
-                    "site": "yoldaolmak", "source": "semantic",
-                    "location_query": loc, "content_filter": cf}
+            return {
+                "count": count,
+                "name": None,
+                "post_id": post_id,
+                "site": "yoldaolmak",
+                "source": "semantic",
+                "location_query": loc,
+                "content_filter": cf,
+            }
 
         # 5. Semantic + upload: "madura adası 5 foto insan yo 21312"
         m = re.match(cls.PATTERN_SEMANTIC_POST, command)
         if m:
             location_query = m.group(1).strip()
-            count          = int(m.group(2))
-            filter_raw     = (m.group(3) or "").strip()
-            site           = cls.SITE_ALIASES.get((m.group(5) or "yo").lower())
+            count = int(m.group(2))
+            filter_raw = (m.group(3) or "").strip()
+            site = cls.SITE_ALIASES.get((m.group(5) or "yo").lower())
             if not site:
                 return None
-            return {"count": count, "name": None, "post_id": int(m.group(4)),
-                    "site": site, "source": "semantic",
-                    "location_query": location_query,
-                    "content_filter": filter_raw or None}
+            return {
+                "count": count,
+                "name": None,
+                "post_id": int(m.group(4)),
+                "site": site,
+                "source": "semantic",
+                "location_query": location_query,
+                "content_filter": filter_raw or None,
+            }
 
         # 6. İsim ile: "kalenderis yo 21312"
         m = re.match(cls.PATTERN_NAME, command)
@@ -181,19 +212,23 @@ class YOCommandParser:
             site = cls.SITE_ALIASES.get((m.group(3) or "yo").lower())
             if not site:
                 return None
-            return {"count": None, "name": name, "post_id": int(m.group(2)),
-                    "site": site, "source": "vil"}
+            return {"count": None, "name": name, "post_id": int(m.group(2)), "site": site, "source": "vil"}
 
         # 7. Semantic yerel: "madura adası 5 foto insan"
         m = re.match(cls.PATTERN_SEMANTIC_ONLY, command)
         if m:
             location_query = m.group(1).strip()
-            count          = int(m.group(2))
-            filter_raw     = (m.group(3) or "").strip()
-            return {"count": count, "name": None, "post_id": None,
-                    "site": "yoldaolmak", "source": "semantic",
-                    "location_query": location_query,
-                    "content_filter": filter_raw or None}
+            count = int(m.group(2))
+            filter_raw = (m.group(3) or "").strip()
+            return {
+                "count": count,
+                "name": None,
+                "post_id": None,
+                "site": "yoldaolmak",
+                "source": "semantic",
+                "location_query": location_query,
+                "content_filter": filter_raw or None,
+            }
 
         return None
 
@@ -229,6 +264,7 @@ class YOOrchestrator:
 
     def log(self, message: str):
         import sys
+
         print(message, file=sys.stderr)
 
     def run_pipeline(
@@ -283,7 +319,7 @@ class YOOrchestrator:
                 image_files = downloader.download(query, count=count)
 
                 if not image_files:
-                    self.log(f"  ✗ No images downloaded")
+                    self.log("  ✗ No images downloaded")
                     result["status"] = "failed"
                     result["error"] = f"No images found for '{query}'"
                     return result
@@ -328,8 +364,10 @@ class YOOrchestrator:
 
         elif source == "semantic":
             # Semantic HDD arama: location_query + content_filter
-            self.log(f"\n🔍 STEP 1: Semantic HDD arama — '{location_query}'" +
-                     (f" | filtre: {content_filter}" if content_filter else ""))
+            self.log(
+                f"\n🔍 STEP 1: Semantic HDD arama — '{location_query}'"
+                + (f" | filtre: {content_filter}" if content_filter else "")
+            )
             try:
                 image_files = search_semantic_assets(
                     location_query=location_query or "",
@@ -362,16 +400,16 @@ class YOOrchestrator:
 
         else:
             # Load from VIL (Downloads)
-            self.log(f"\n📁 STEP 1: Load images from VIL")
+            self.log("\n📁 STEP 1: Load images from VIL")
             try:
                 image_files = load_vil_images_from_index_for_post(count=count, name=name, post_context=post_context)
                 if image_files:
                     self.log(f"  ✓ Loaded {len(image_files)} images from visual_memory index")
                 else:
-                    self.log(f"  ℹ visual_memory index had no matching assets, fallback to file scan")
+                    self.log("  ℹ visual_memory index had no matching assets, fallback to file scan")
                     image_files = get_vil_images(count=count, name=name)
                 if not image_files:
-                    self.log(f"  ✗ No images found")
+                    self.log("  ✗ No images found")
                     result["status"] = "failed"
                     result["error"] = "No images in Downloads"
                     return result
@@ -388,7 +426,7 @@ class YOOrchestrator:
                 return result
 
         # Step 2: Process images (crop, filter, export)
-        self.log(f"\n🎨 STEP 2: Process images (crop + YO filter)")
+        self.log("\n🎨 STEP 2: Process images (crop + YO filter)")
         processed_images = {}
         processed_details = {}
         panoramic_images = {}
@@ -424,7 +462,7 @@ class YOOrchestrator:
             self.log(f"  ✓ Processed {len(processed_images)} images (normal post'a)")
 
             if not processed_images and panoramic_images:
-                self.log(f"  ✗ Sadece panoramik resimler var - normal post'a uymuyor!")
+                self.log("  ✗ Sadece panoramik resimler var - normal post'a uymuyor!")
                 result["status"] = "warning"
                 result["warning"] = "All images are panoramic (2.0:1 or wider)"
                 return result
@@ -436,11 +474,11 @@ class YOOrchestrator:
             return result
 
         # Step 3: Generate metadata (GPT-4 Vision primary)
-        self.log(f"\n🧠 STEP 3: Generate semantic metadata")
+        self.log("\n🧠 STEP 3: Generate semantic metadata")
         metadata_dict = {}
 
         # Use first image's location hint
-        raw_hint = location_hint or Path(image_files[0]).stem.split('_')[0]
+        raw_hint = location_hint or Path(image_files[0]).stem.split("_")[0]
         hint = "" if str(raw_hint).strip().lower() in {"depositphotos", "img", "image"} else raw_hint
         self.log(f"  Location hint: {hint}")
         if post_context.get("title"):
@@ -524,7 +562,7 @@ class YOOrchestrator:
                 metadata_source = "hybrid" if metadata_source != "fallback" else "fallback"
 
         # Step 3b: Finalize filename and embed metadata
-        self.log(f"\n🏷️  STEP 3b: Finalize filenames and embed metadata")
+        self.log("\n🏷️  STEP 3b: Finalize filenames and embed metadata")
         used_slugs: set[str] = set()
         finalized_files: list[str] = []
         finalized_metadata: dict[str, Dict] = {}
@@ -563,9 +601,7 @@ class YOOrchestrator:
             slug_candidates = build_publish_slug_candidates(meta, post_context, slug_source_path)
             # Same guard as the native engine: an empty candidate list must not
             # raise IndexError in the middle of a publish run.
-            candidate_slug = ensure_unique_slug(
-                slug_candidates[0] if slug_candidates else "seyahat-kare", used_slugs
-            )
+            candidate_slug = ensure_unique_slug(slug_candidates[0] if slug_candidates else "seyahat-kare", used_slugs)
             for slug in slug_candidates:
                 trial = ensure_unique_slug(slug, used_slugs)
                 if trial == slug:
@@ -589,7 +625,7 @@ class YOOrchestrator:
         processed_details = finalized_details
 
         # Step 3c: quality gate
-        self.log(f"\n🛡️  STEP 3c: Validate crop, filter, metadata")
+        self.log("\n🛡️  STEP 3c: Validate crop, filter, metadata")
         allow_fallback_upload = os.getenv("YO_ALLOW_FALLBACK_UPLOAD", "0").strip().lower() in {"1", "true", "yes", "on"}
         title_counts: dict[str, int] = defaultdict(int)
         for meta in metadata_dict.values():
@@ -680,7 +716,7 @@ class YOOrchestrator:
             self.log(f"\n📤 STEP 4: Upload to WordPress ({site})")
             try:
                 if not processed_files:
-                    self.log(f"  ✗ No normal images to upload")
+                    self.log("  ✗ No normal images to upload")
                     result["status"] = "skipped"
                     result["uploaded_count"] = 0
                     result["panoramic_count"] = len(panoramic_images)
@@ -699,7 +735,7 @@ class YOOrchestrator:
                     if upload_result["failed"]:
                         self.log(f"  ⚠️  Failed: {len(upload_result['failed'])} images")
                     if panoramic_images:
-                        self.log(f"  ℹ️  Panoramik resimleri pillar pages'e manuel kopyala")
+                        self.log("  ℹ️  Panoramik resimleri pillar pages'e manuel kopyala")
             except Exception as e:
                 self.log(f"  ✗ Upload error: {e}")
                 result["status"] = "failed"
@@ -707,7 +743,7 @@ class YOOrchestrator:
 
         # Final summary
         self.log(f"\n{'='*60}")
-        self.log(f"✅ Pipeline complete!")
+        self.log("✅ Pipeline complete!")
         self.log(f"  Status: {result['status']}")
         self.log(f"  Uploaded: {result.get('uploaded_count', 0)}")
         self.log(f"  Failed: {result.get('failed_count', 0)}")
@@ -749,7 +785,7 @@ def main():
     params = YOCommandParser.parse(command)
     if not params:
         print(f"✗ Invalid command: {command}")
-        print(f"  Expected: '<count> foto yo <post_id> [site]'")
+        print("  Expected: '<count> foto yo <post_id> [site]'")
         sys.exit(1)
 
     print(f"✓ Parsed: {params}")

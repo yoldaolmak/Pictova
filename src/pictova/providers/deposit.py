@@ -21,18 +21,37 @@ _API_URL = "https://api.depositphotos.com/"
 
 # Başlıkta bu kelimeler varsa reddet
 _BLOCKED_TITLE_FRAGMENTS = (
-    "hotel", "resort", "spa ", "waterpark", "water park",
-    "bikini", "young woman", "woman smiling", "man smiling",
-    "tourists posing", "couple", "selfie",
-    "logo", "icon", "illustration", "vector", "clipart",
-    "map of", "infographic", "banner", "poster", "flyer",
-    "3d render", "3d model", "rendering",
+    "hotel",
+    "resort",
+    "spa ",
+    "waterpark",
+    "water park",
+    "bikini",
+    "young woman",
+    "woman smiling",
+    "man smiling",
+    "tourists posing",
+    "couple",
+    "selfie",
+    "logo",
+    "icon",
+    "illustration",
+    "vector",
+    "clipart",
+    "map of",
+    "infographic",
+    "banner",
+    "poster",
+    "flyer",
+    "3d render",
+    "3d model",
+    "rendering",
 )
 
 # Minimum kalite eşiği
-_MIN_WIDTH = 3000      # piksel — küçük stok fotoğrafları elenir
-_MIN_DOWNLOADS = 2     # neredeyse hiç indirilmemiş = düşük kalite sinyali
-_MIN_SCORE = 2         # toplam puan eşiği
+_MIN_WIDTH = 3000  # piksel — küçük stok fotoğrafları elenir
+_MIN_DOWNLOADS = 2  # neredeyse hiç indirilmemiş = düşük kalite sinyali
+_MIN_SCORE = 2  # toplam puan eşiği
 _TRANSIENT_HTTP_CODES = {429, 500, 502, 503, 504}
 _RETRY_DELAYS_SECONDS = (0.5, 1.5)
 _DEFAULT_CACHE_DIR = Path(__file__).resolve().parents[3] / "data" / "deposit_cache"
@@ -102,8 +121,7 @@ def _login() -> str:
     api_key = _api_key()
     user = env_str("DEPOSIT_LOGIN_USER", "yoldaolmak")
     pwd = env_str("DEPOSIT_LOGIN_PASSWORD", "") or ""
-    r = _post({"dp_command": "login", "dp_apikey": api_key,
-                "dp_login_user": user, "dp_login_password": pwd})
+    r = _post({"dp_command": "login", "dp_apikey": api_key, "dp_login_user": user, "dp_login_password": pwd})
     if r.get("type") != "success":
         raise RuntimeError(f"DepositPhotos login başarısız: {r.get('error', {}).get('errormsg', r)}")
     _SESSION_ID = str(r["sessionid"])
@@ -165,15 +183,17 @@ def search(query: str, count: int = 8, orientation: str = "horizontal") -> List[
     api_key = _api_key()
     # Fazla çek — filtreleme sonrası count kadar kalsın
     fetch_limit = max(count * 4, 20)
-    r = _post({
-        "dp_command": "search",
-        "dp_apikey": api_key,
-        "dp_search_query": query,
-        "dp_search_limit": fetch_limit,
-        "dp_search_offset": 0,
-        "dp_search_orientation": orientation,
-        "dp_search_nudity": 0,
-    })
+    r = _post(
+        {
+            "dp_command": "search",
+            "dp_apikey": api_key,
+            "dp_search_query": query,
+            "dp_search_limit": fetch_limit,
+            "dp_search_offset": 0,
+            "dp_search_orientation": orientation,
+            "dp_search_nudity": 0,
+        }
+    )
     if r.get("type") != "success":
         raise RuntimeError(f"DepositPhotos arama hatası: {r.get('error', {}).get('errormsg', r)}")
 
@@ -229,14 +249,16 @@ def _save_download_link(state_path: Path, download_link: str) -> None:
 
 def _request_download_link(asset_id: str, session_id: str) -> str:
     api_key = _api_key()
-    response = _post({
-        "dp_command": "getMedia",
-        "dp_apikey": api_key,
-        "dp_session_id": session_id,
-        "dp_media_id": asset_id,
-        "dp_media_option": "xl",
-        "dp_media_license": "standard",
-    })
+    response = _post(
+        {
+            "dp_command": "getMedia",
+            "dp_apikey": api_key,
+            "dp_session_id": session_id,
+            "dp_media_id": asset_id,
+            "dp_media_option": "xl",
+            "dp_media_license": "standard",
+        }
+    )
     if response.get("type") != "success":
         err = response.get("error", {})
         raise RuntimeError(f"DepositPhotos indirme hatası ({asset_id}): {err.get('errormsg', err)}")
@@ -272,9 +294,7 @@ def _stream_download(download_link: str, temp_dest: Path) -> None:
                 with temp_dest.open("ab" if append else "wb") as output:
                     while True:
                         if time.monotonic() - started > _DOWNLOAD_DEADLINE_SECONDS:
-                            raise TimeoutError(
-                                f"DepositPhotos file transfer exceeded {_DOWNLOAD_DEADLINE_SECONDS}s"
-                            )
+                            raise TimeoutError(f"DepositPhotos file transfer exceeded {_DOWNLOAD_DEADLINE_SECONDS}s")
                         chunk = response.read(_DOWNLOAD_CHUNK_BYTES)
                         if not chunk:
                             break

@@ -42,21 +42,21 @@ def search(query: str, count: int = 8) -> list[dict[str, Any]]:
         if not url or int(info.get("width") or 0) < 1200:
             continue
         meta = info.get("extmetadata") or {}
-        results.append({
-            "id": str(page.get("pageid")),
-            "title": str(page.get("title") or "").removeprefix("File:"),
-            "url": url,
-            "source_url": info.get("descriptionurl") or "",
-            "width": int(info.get("width") or 0),
-            "height": int(info.get("height") or 0),
-            "artist": (meta.get("Artist") or {}).get("value", ""),
-            "license": (meta.get("LicenseShortName") or {}).get("value", ""),
-        })
+        results.append(
+            {
+                "id": str(page.get("pageid")),
+                "title": str(page.get("title") or "").removeprefix("File:"),
+                "url": url,
+                "source_url": info.get("descriptionurl") or "",
+                "width": int(info.get("width") or 0),
+                "height": int(info.get("height") or 0),
+                "artist": (meta.get("Artist") or {}).get("value", ""),
+                "license": (meta.get("LicenseShortName") or {}).get("value", ""),
+            }
+        )
     query_tokens = set(re.findall(r"[a-z0-9]+", query.casefold()))
     results.sort(
-        key=lambda item: len(
-            query_tokens & set(re.findall(r"[a-z0-9]+", item["title"].casefold()))
-        ),
+        key=lambda item: len(query_tokens & set(re.findall(r"[a-z0-9]+", item["title"].casefold()))),
         reverse=True,
     )
     return results[:count]

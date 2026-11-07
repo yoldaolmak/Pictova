@@ -9,7 +9,17 @@ import json
 import os
 from typing import Any, Callable, Dict, Tuple
 
-from src.pictova.app.api import attach_images, gallery_query, guard_post, health_status, plan_attach, process_attach, review_post, search_photos, stats_summary
+from src.pictova.app.api import (
+    attach_images,
+    gallery_query,
+    guard_post,
+    health_status,
+    plan_attach,
+    process_attach,
+    review_post,
+    search_photos,
+    stats_summary,
+)
 from src.pictova.app.state import job_registry
 from src.pictova.config import load_project_env
 
@@ -82,10 +92,14 @@ def build_handler(*, token: str) -> type[BaseHTTPRequestHandler]:
             provided = self.headers.get("Authorization", "").encode("utf-8")
             if hmac.compare_digest(provided, expected_authorization):
                 return True
-            _json_response(self, HTTPStatus.UNAUTHORIZED, {
-                "status": "failed",
-                "warning": "authentication required",
-            })
+            _json_response(
+                self,
+                HTTPStatus.UNAUTHORIZED,
+                {
+                    "status": "failed",
+                    "warning": "authentication required",
+                },
+            )
             return False
 
         def log_message(self, format: str, *args: Any) -> None:
@@ -147,15 +161,27 @@ def build_handler(*, token: str) -> type[BaseHTTPRequestHandler]:
             if not self._authorized():
                 return
             if self.headers.get("Origin"):
-                _json_response(self, HTTPStatus.FORBIDDEN, {
-                    "status": "failed",
-                    "warning": "browser-origin requests are not supported",
-                })
+                _json_response(
+                    self,
+                    HTTPStatus.FORBIDDEN,
+                    {
+                        "status": "failed",
+                        "warning": "browser-origin requests are not supported",
+                    },
+                )
                 return
             if self.path == "/jobs/attach":
                 payload, error = _load_json_body(self)
                 if error:
-                    _json_response(self, HTTPStatus.REQUEST_ENTITY_TOO_LARGE if error == "request body too large" else HTTPStatus.BAD_REQUEST, {"status": "failed", "warning": error})
+                    _json_response(
+                        self,
+                        (
+                            HTTPStatus.REQUEST_ENTITY_TOO_LARGE
+                            if error == "request body too large"
+                            else HTTPStatus.BAD_REQUEST
+                        ),
+                        {"status": "failed", "warning": error},
+                    )
                     return
                 job = job_registry.create_job(
                     kind="attach",
@@ -172,7 +198,15 @@ def build_handler(*, token: str) -> type[BaseHTTPRequestHandler]:
 
             payload, error = _load_json_body(self)
             if error:
-                _json_response(self, HTTPStatus.REQUEST_ENTITY_TOO_LARGE if error == "request body too large" else HTTPStatus.BAD_REQUEST, {"status": "failed", "warning": error})
+                _json_response(
+                    self,
+                    (
+                        HTTPStatus.REQUEST_ENTITY_TOO_LARGE
+                        if error == "request body too large"
+                        else HTTPStatus.BAD_REQUEST
+                    ),
+                    {"status": "failed", "warning": error},
+                )
                 return
 
             try:

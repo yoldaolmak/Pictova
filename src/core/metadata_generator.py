@@ -18,9 +18,7 @@ from src.utils.config import get_visual_memory_db_path, load_project_env
 
 load_project_env()
 
-BAD_SOURCE_TOKENS = {
-    "depositphotos", "xl", "yo", "processed", "final", "image", "img", "jpeg", "jpg", "png", "webp"
-}
+BAD_SOURCE_TOKENS = {"depositphotos", "xl", "yo", "processed", "final", "image", "img", "jpeg", "jpg", "png", "webp"}
 
 SCENE_FALLBACKS = {
     "general": "gezi karesi",
@@ -241,7 +239,9 @@ Kurallar:
                 except Exception as e:
                     last_error = e
                     error_text = str(e).lower()
-                    if any(token in error_text for token in ("429", "quota", "billing", "rate limit", "insufficient_quota")):
+                    if any(
+                        token in error_text for token in ("429", "quota", "billing", "rate limit", "insufficient_quota")
+                    ):
                         break
                     if any(token in error_text for token in ("model", "not found", "unsupported")):
                         continue
@@ -274,7 +274,7 @@ Kurallar:
                                 {
                                     "type": "text",
                                     "text": prompt,
-                                }
+                                },
                             ],
                         }
                     ],
@@ -328,11 +328,7 @@ Kurallar:
         """
         from src.core.media_publish import slugify as mp_slugify
 
-        source = (
-            str(metadata.get("heading") or "").strip()
-            or str(metadata.get("alt") or "").strip()
-            or location_hint
-        )
+        source = str(metadata.get("heading") or "").strip() or str(metadata.get("alt") or "").strip() or location_hint
         if not source:
             return "gorsel"
 
@@ -445,8 +441,25 @@ def extract_focus_terms(post_context: Dict, location_hint: str = "") -> list[str
     ).lower()
     tokens = re.findall(r"[a-zA-Z0-9çğıöşüÇĞİÖŞÜ]+", raw)
     stopwords = {
-        "ve", "ile", "için", "gezi", "rehberi", "en", "bir", "bu", "gibi", "yeri",
-        "yerler", "yer", "nasil", "nasıl", "ne", "nerede", "güncel", "detayli", "detaylı",
+        "ve",
+        "ile",
+        "için",
+        "gezi",
+        "rehberi",
+        "en",
+        "bir",
+        "bu",
+        "gibi",
+        "yeri",
+        "yerler",
+        "yer",
+        "nasil",
+        "nasıl",
+        "ne",
+        "nerede",
+        "güncel",
+        "detayli",
+        "detaylı",
     }
     seen: list[str] = []
     for token in tokens:
@@ -520,7 +533,9 @@ def build_vision_assisted_metadata(
     focus_terms = extract_focus_terms(post_context, location_hint)
     labels = [translate_vision_label(item.get("description", "")) for item in analysis.get("labels", [])[:5]]
     labels = [label for label in labels if label and label not in {"seyahat", "gezi"}]
-    landmarks = [clean_text(item, limit=40).lower() for item in analysis.get("landmarks", [])[:2] if clean_text(item, limit=40)]
+    landmarks = [
+        clean_text(item, limit=40).lower() for item in analysis.get("landmarks", [])[:2] if clean_text(item, limit=40)
+    ]
     scene = landmarks[0] if landmarks else (labels[0] if labels else "")
     qualifier = labels[1] if len(labels) > 1 and labels[1] != scene else ""
     visual_phrase = " ".join(part for part in [scene, qualifier] if part).strip()
@@ -582,28 +597,36 @@ def normalize_metadata(metadata: Dict, *, image_path: str, location_hint: str, p
         evidence = [part.strip() for part in evidence.split(",") if part.strip()]
     elif not isinstance(evidence, list):
         evidence = []
-    normalized["_evidence"] = [clean_text(str(item), limit=50).lower() for item in evidence if clean_text(str(item), limit=50)][:5]
+    normalized["_evidence"] = [
+        clean_text(str(item), limit=50).lower() for item in evidence if clean_text(str(item), limit=50)
+    ][:5]
 
     location_tokens = metadata.get("location_tokens", [])
     if isinstance(location_tokens, str):
         location_tokens = [part.strip() for part in location_tokens.split(",") if part.strip()]
     elif not isinstance(location_tokens, list):
         location_tokens = []
-    normalized["_location_tokens"] = [clean_text(str(item), limit=50).lower() for item in location_tokens if clean_text(str(item), limit=50)][:3]
+    normalized["_location_tokens"] = [
+        clean_text(str(item), limit=50).lower() for item in location_tokens if clean_text(str(item), limit=50)
+    ][:3]
 
     scene_tokens = metadata.get("scene_tokens", [])
     if isinstance(scene_tokens, str):
         scene_tokens = [part.strip() for part in scene_tokens.split(",") if part.strip()]
     elif not isinstance(scene_tokens, list):
         scene_tokens = []
-    normalized["_scene_tokens"] = [clean_text(str(item), limit=50).lower() for item in scene_tokens if clean_text(str(item), limit=50)][:4]
+    normalized["_scene_tokens"] = [
+        clean_text(str(item), limit=50).lower() for item in scene_tokens if clean_text(str(item), limit=50)
+    ][:4]
 
     warnings = metadata.get("warnings", [])
     if isinstance(warnings, str):
         warnings = [part.strip() for part in warnings.split(",") if part.strip()]
     elif not isinstance(warnings, list):
         warnings = []
-    normalized["_warnings"] = [clean_text(str(item), limit=80) for item in warnings if clean_text(str(item), limit=80)][:4]
+    normalized["_warnings"] = [clean_text(str(item), limit=80) for item in warnings if clean_text(str(item), limit=80)][
+        :4
+    ]
     raw_conf = metadata.get("confidence")
     if raw_conf is None:
         # Model didn't return confidence field → treat as neutral, not zero
@@ -672,6 +695,7 @@ if __name__ == "__main__":
         result = gen.analyze_image(str(test_image), location_hint="petra")
         print("\n✅ Metadata generated:")
         import json
+
         print(json.dumps(result["analysis"], indent=2, ensure_ascii=False))
     else:
         print(f"Test image not found: {test_image}")

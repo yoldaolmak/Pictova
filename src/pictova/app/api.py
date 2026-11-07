@@ -19,6 +19,7 @@ from src.pictova.providers.wordpress import (
 def gallery_query(payload: Dict[str, Any]) -> Dict[str, Any]:
     """POST /gallery — zengin fotoğraf galerisi araması."""
     from src.pictova.engine.gallery import gallery_search, gallery_stats
+
     query = str(payload.get("query", "")).strip()
     if not query:
         return {"status": "success", "stats": gallery_stats(), "results": []}
@@ -35,6 +36,7 @@ def gallery_query(payload: Dict[str, Any]) -> Dict[str, Any]:
 def search_photos(payload: Dict[str, Any]) -> Dict[str, Any]:
     """POST /search — lokasyon bazlı fotoğraf arama."""
     from src.pictova.engine.search import search_semantic_assets
+
     query = str(payload.get("query", "")).strip()
     if not query:
         return {"status": "failed", "warning": "query gerekli"}
@@ -55,6 +57,7 @@ def review_post(payload: Dict[str, Any]) -> Dict[str, Any]:
     post_id = payload.get("post_id")
     try:
         from src.pictova.engine.search import search_semantic_assets
+
         if str(site).strip().lower() == "auto":
             site, ctx = resolve_post_site(int(post_id), site=site)
         else:
@@ -163,11 +166,7 @@ def refresh_post_captions(payload: Dict[str, Any]) -> Dict[str, Any]:
                 "dry_run": True,
                 "site": site,
                 "post_id": int(post_id),
-                "captions": {
-                    int(media_id): caption
-                    for media_id, caption in captions.items()
-                    if caption
-                },
+                "captions": {int(media_id): caption for media_id, caption in captions.items() if caption},
             }
         refreshed_items = [
             {
@@ -187,11 +186,7 @@ def refresh_post_captions(payload: Dict[str, Any]) -> Dict[str, Any]:
             "command": "refresh-captions",
             "site": site,
             "post_id": int(post_id),
-            "captions": {
-                int(media_id): caption
-                for media_id, caption in captions.items()
-                if caption
-            },
+            "captions": {int(media_id): caption for media_id, caption in captions.items() if caption},
             **result,
         }
     except Exception as exc:
@@ -202,6 +197,7 @@ def stats_summary() -> Dict[str, Any]:
     """GET /stats — kısa istatistik özeti."""
     from src.pictova.engine.gallery import gallery_stats
     from src.pictova.engine.vision_chain import has_any_vision_source
+
     stats = gallery_stats()
     scan_pct = int(stats["scanned"] / stats["local"] * 100) if stats["local"] else 0
     return {

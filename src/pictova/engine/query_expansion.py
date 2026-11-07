@@ -123,12 +123,14 @@ def _ask_lm_studio(prompt: str, vision_chain: Any) -> str:
 
     if not vision_chain._lm_studio_has_vision_model():
         return ""
-    body = json.dumps({
-        "model": "local",
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0,
-        "max_tokens": 400,
-    }).encode()
+    body = json.dumps(
+        {
+            "model": "local",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0,
+            "max_tokens": 400,
+        }
+    ).encode()
     request = urllib.request.Request(
         "http://localhost:1234/v1/chat/completions",
         data=body,
@@ -148,17 +150,14 @@ def _ask_gemini(prompt: str, vision_chain: Any) -> str:
     if not keys:
         return ""
     model = env_str("GEMINI_VISION_MODEL") or "gemini-2.5-flash"
-    body = json.dumps({
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"maxOutputTokens": 800, "temperature": 0},
-    }).encode()
-    url = (
-        f"https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{model}:generateContent?key={keys[0]}"
-    )
-    request = urllib.request.Request(
-        url, data=body, method="POST", headers={"Content-Type": "application/json"}
-    )
+    body = json.dumps(
+        {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"maxOutputTokens": 800, "temperature": 0},
+        }
+    ).encode()
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/" f"{model}:generateContent?key={keys[0]}"
+    request = urllib.request.Request(url, data=body, method="POST", headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(request, timeout=30) as response:
         payload = json.loads(response.read())
     return payload["candidates"][0]["content"]["parts"][0]["text"]

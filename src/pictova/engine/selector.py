@@ -100,7 +100,9 @@ def resolve_source_images(
                 "query": base_query,
                 "content_filter": content_filter,
                 "files": files[:_count],
-                "heading_assignments": {file: heading_assignments[file] for file in files[:_count] if file in heading_assignments},
+                "heading_assignments": {
+                    file: heading_assignments[file] for file in files[:_count] if file in heading_assignments
+                },
                 "warnings": selection_warnings,
             }
         # Headings are the hard semantic contract.  A partial exact result is
@@ -136,7 +138,12 @@ def resolve_source_images(
             )
             files = list(dict.fromkeys(files + generic_files))[:_count]
         if len(files) >= _count:
-            return {"source": "semantic", "query": location_query or "", "content_filter": content_filter, "files": files}
+            return {
+                "source": "semantic",
+                "query": location_query or "",
+                "content_filter": content_filter,
+                "files": files,
+            }
 
         # 2. iCloud candidate photos — first destination index, then FTS fallback
         need = _count - len(files)
@@ -171,7 +178,7 @@ def resolve_source_images(
                 # Per-heading selection: 1 photo per heading, specific query per slot
                 # headings to fill = the ones that don't yet have a local/icloud photo
                 already_filled = len(files)
-                target_headings = available_headings[already_filled: already_filled + need]
+                target_headings = available_headings[already_filled : already_filled + need]
                 if not target_headings:
                     target_headings = available_headings[:need]
 
@@ -227,7 +234,9 @@ def resolve_source_images(
                 "query": location_query or "",
                 "content_filter": content_filter,
                 "files": files[:_count],
-                "heading_assignments": {file: heading_assignments[file] for file in files[:_count] if file in heading_assignments},
+                "heading_assignments": {
+                    file: heading_assignments[file] for file in files[:_count] if file in heading_assignments
+                },
             }
         files = _semantic_heading_files(
             post_context=post_context,
@@ -273,7 +282,8 @@ def resolve_source_images(
     if source == "deposit":
         deposit_warnings: list[str] = []
         numbered_headings = [
-            heading for heading in (post_context.get("available_headings") or [])
+            heading
+            for heading in (post_context.get("available_headings") or [])
             if re.match(r"^\s*\d{1,3}\s*[.\-):]", str(heading.get("text") or ""))
         ]
         if numbered_headings and not query and not location_query:
@@ -364,19 +374,34 @@ def resolve_source_images(
         preferred_q = location_query or query or _primary_post_query(post_context)
         anchor_tokens = _specific_tokens(_token_set_from_text(preferred_q))
         if not preferred_q or not anchor_tokens:
-            return {"source": "wikimedia", "query": "", "content_filter": None, "files": [], "warnings": wikimedia_warnings}
+            return {
+                "source": "wikimedia",
+                "query": "",
+                "content_filter": None,
+                "files": [],
+                "warnings": wikimedia_warnings,
+            }
         # A provider outage degrades this selection the same way it degrades
         # DepositPhotos: an empty exact result, never an aborted command.
         try:
             results = wikimedia_provider.search(preferred_q, count=max(_count * 4, 20))
             exact_results = [
-                result for result in results
+                result
+                for result in results
                 if _matching_anchor_count(
-                    _token_set_from_text(result.get("title", "")), anchor_tokens,
-                ) >= min(2, len(anchor_tokens))
+                    _token_set_from_text(result.get("title", "")),
+                    anchor_tokens,
+                )
+                >= min(2, len(anchor_tokens))
             ]
             if len(exact_results) < _count:
-                return {"source": "wikimedia", "query": "", "content_filter": None, "files": [], "warnings": wikimedia_warnings}
+                return {
+                    "source": "wikimedia",
+                    "query": "",
+                    "content_filter": None,
+                    "files": [],
+                    "warnings": wikimedia_warnings,
+                }
             if plan_only:
                 files = [result["url"] for result in exact_results[:_count]]
             else:
@@ -421,49 +446,177 @@ def resolve_source_images(
 
 
 _THEME_NIGHT_KEYWORDS = {
-    "gece hayatı", "nightlife", "gece kulübü", "bar ", "barlar", "eğlence",
-    "party", "club ", "disco", "meyhane", "taverna", "pub ",
+    "gece hayatı",
+    "nightlife",
+    "gece kulübü",
+    "bar ",
+    "barlar",
+    "eğlence",
+    "party",
+    "club ",
+    "disco",
+    "meyhane",
+    "taverna",
+    "pub ",
 }
 _THEME_NATURE_KEYWORDS = {
-    "doğa", "yayla", "orman", "dağ", "kanyonu", "şelale", "vadisi",
-    "nature", "forest", "mountain", "canyon", "waterfall",
+    "doğa",
+    "yayla",
+    "orman",
+    "dağ",
+    "kanyonu",
+    "şelale",
+    "vadisi",
+    "nature",
+    "forest",
+    "mountain",
+    "canyon",
+    "waterfall",
 }
 _THEME_BEACH_KEYWORDS = {
-    "plaj", "koy", "deniz", "sahil", "beach", "bay", "coast",
+    "plaj",
+    "koy",
+    "deniz",
+    "sahil",
+    "beach",
+    "bay",
+    "coast",
 }
 
 _NOISY_METADATA_TOKENS = {
-    "advert", "advertisement", "banner", "brochure", "document", "flyer",
-    "logo", "menu", "poster", "promo", "promotional", "reklam", "screenshot",
-    "sign", "street sign", "food", "dish", "restaurant", "interior",
-    "presentation", "tabela", "tableware", "dish", "chair", "room",
+    "advert",
+    "advertisement",
+    "banner",
+    "brochure",
+    "document",
+    "flyer",
+    "logo",
+    "menu",
+    "poster",
+    "promo",
+    "promotional",
+    "reklam",
+    "screenshot",
+    "sign",
+    "street sign",
+    "food",
+    "dish",
+    "restaurant",
+    "interior",
+    "presentation",
+    "tabela",
+    "tableware",
+    "dish",
+    "chair",
+    "room",
 }
 _GENERIC_SEMANTIC_ANCHORS = {
-    "waterfall", "selale", "şelale", "beach", "plaj", "bay", "koy",
-    "island", "ada", "castle", "kale", "coast", "sahil", "harbor",
-    "liman", "museum", "muze", "nature", "landscape", "manzara",
+    "waterfall",
+    "selale",
+    "şelale",
+    "beach",
+    "plaj",
+    "bay",
+    "koy",
+    "island",
+    "ada",
+    "castle",
+    "kale",
+    "coast",
+    "sahil",
+    "harbor",
+    "liman",
+    "museum",
+    "muze",
+    "nature",
+    "landscape",
+    "manzara",
 }
 
-_NON_SPECIFIC_MATCH_TOKENS = GENERIC_ANCHORS | _GENERIC_SEMANTIC_ANCHORS | {
-    "beautiful", "guide", "how", "landscapes", "mountain", "mountains",
-    "national", "park", "parks", "panorama", "panoramic", "place", "places",
-    "rehber", "rehberi", "selaleleri", "waterfalls", "scenic", "sunset",
-    "where", "visit",
-    "bilmeniz", "gerekenler", "gitmeden", "giris", "ucreti", "nasil", "nerede",
-    "adasi", "golu", "kalesi", "koyu", "magarasi", "milli", "ormani", "parki",
-    "plaji", "sahili", "vadisi", "yaylasi", "gezilecek", "yerler", "ok",
-}
+_NON_SPECIFIC_MATCH_TOKENS = (
+    GENERIC_ANCHORS
+    | _GENERIC_SEMANTIC_ANCHORS
+    | {
+        "beautiful",
+        "guide",
+        "how",
+        "landscapes",
+        "mountain",
+        "mountains",
+        "national",
+        "park",
+        "parks",
+        "panorama",
+        "panoramic",
+        "place",
+        "places",
+        "rehber",
+        "rehberi",
+        "selaleleri",
+        "waterfalls",
+        "scenic",
+        "sunset",
+        "where",
+        "visit",
+        "bilmeniz",
+        "gerekenler",
+        "gitmeden",
+        "giris",
+        "ucreti",
+        "nasil",
+        "nerede",
+        "adasi",
+        "golu",
+        "kalesi",
+        "koyu",
+        "magarasi",
+        "milli",
+        "ormani",
+        "parki",
+        "plaji",
+        "sahili",
+        "vadisi",
+        "yaylasi",
+        "gezilecek",
+        "yerler",
+        "ok",
+    }
+)
 _THEMATIC_POST_TOKENS = {
-    "yalniz", "seyahat", "gezi", "rehber", "rehberi", "tatil", "rota",
-    "rotasi", "ipuclari", "deneyim", "deneyimler", "uygulama", "uygulamasi",
-    "app", "apps",
+    "yalniz",
+    "seyahat",
+    "gezi",
+    "rehber",
+    "rehberi",
+    "tatil",
+    "rota",
+    "rotasi",
+    "ipuclari",
+    "deneyim",
+    "deneyimler",
+    "uygulama",
+    "uygulamasi",
+    "app",
+    "apps",
 }
 _TITLE_VERB_TOKENS = {
-    "etmek", "olmak", "yapmak", "hissetmek", "bilmek", "vermek", "almak",
-    "gercek", "gercekten", "kendi", "daha", "gibi", "bir",
+    "etmek",
+    "olmak",
+    "yapmak",
+    "hissetmek",
+    "bilmek",
+    "vermek",
+    "almak",
+    "gercek",
+    "gercekten",
+    "kendi",
+    "daha",
+    "gibi",
+    "bir",
 }
 
 _TURKISH_ASCII = str.maketrans({"ç": "c", "ğ": "g", "ı": "i", "ö": "o", "ş": "s", "ü": "u"})
+
 
 def _canonical_token(value: object) -> str:
     # Lowercasing U+0130 can leave a combining dot that normalize_text drops
@@ -491,10 +644,12 @@ def _specific_tokens(tokens: set[str]) -> set[str]:
 
 def _primary_post_tokens(post_context: Dict[str, Any]) -> set[str]:
     """Return only the post title/slug entity anchors; body links cannot widen them."""
-    return _specific_tokens(_token_set_from_text(
-        post_context.get("title", ""),
-        post_context.get("slug", ""),
-    ))
+    return _specific_tokens(
+        _token_set_from_text(
+            post_context.get("title", ""),
+            post_context.get("slug", ""),
+        )
+    )
 
 
 def _has_hard_post_anchor(tokens: set[str]) -> bool:
@@ -505,22 +660,19 @@ def _has_hard_post_anchor(tokens: set[str]) -> bool:
 def _primary_post_query(post_context: Dict[str, Any]) -> str:
     primary_tokens = _primary_post_tokens(post_context)
     if not _has_hard_post_anchor(primary_tokens):
-        thematic_tokens = _token_set_from_text(
-            post_context.get("title", ""),
-            post_context.get("slug", ""),
-        ) & _THEMATIC_POST_TOKENS
+        thematic_tokens = (
+            _token_set_from_text(
+                post_context.get("title", ""),
+                post_context.get("slug", ""),
+            )
+            & _THEMATIC_POST_TOKENS
+        )
         for value in (post_context.get("slug", ""), post_context.get("title", "")):
-            ordered = [
-                token for token in re.findall(r"[a-z0-9]+", _canonical_token(value))
-                if token in thematic_tokens
-            ]
+            ordered = [token for token in re.findall(r"[a-z0-9]+", _canonical_token(value)) if token in thematic_tokens]
             if ordered:
                 return " ".join(dict.fromkeys(ordered))
     for value in (post_context.get("slug", ""), post_context.get("title", "")):
-        ordered = [
-            token for token in re.findall(r"[a-z0-9]+", _canonical_token(value))
-            if token in primary_tokens
-        ]
+        ordered = [token for token in re.findall(r"[a-z0-9]+", _canonical_token(value)) if token in primary_tokens]
         if ordered:
             return " ".join(dict.fromkeys(ordered))
     return ""
@@ -532,13 +684,15 @@ def _context_anchor_tokens(
     heading_text: str = "",
     anchor_text: str = "",
 ) -> set[str]:
-    return _specific_tokens(_token_set_from_text(
-        heading_text,
-        anchor_text,
-        post_context.get("title", ""),
-        post_context.get("slug", ""),
-        _extract_location(post_context),
-    ))
+    return _specific_tokens(
+        _token_set_from_text(
+            heading_text,
+            anchor_text,
+            post_context.get("title", ""),
+            post_context.get("slug", ""),
+            _extract_location(post_context),
+        )
+    )
 
 
 def _specific_anchor_text(value: str) -> str:
@@ -762,11 +916,13 @@ def _heading_specific_selection(
     }
     if occupied:
         available_headings = [
-            heading for heading in available_headings
+            heading
+            for heading in available_headings
             if (
                 re.sub(r"\s+", " ", str(heading.get("text") or "")).strip().casefold(),
                 int(heading.get("level") or 0),
-            ) not in occupied
+            )
+            not in occupied
         ]
     if not available_headings:
         return [], {}
@@ -849,11 +1005,13 @@ def _heading_specific_selection(
             # must not erase the exact app/place match that justified this
             # source candidate.
             heading_contract["required_heading_tokens"] = sorted(entity_tokens)
-        records.append({
-            "heading": heading_contract,
-            "chosen": chosen,
-            "external_spec": external_spec,
-        })
+        records.append(
+            {
+                "heading": heading_contract,
+                "chosen": chosen,
+                "external_spec": external_spec,
+            }
+        )
 
     # Previewing four independent headings must not wait for four serial
     # provider round-trips. Actual licensed downloads are deliberately serial:
@@ -870,21 +1028,20 @@ def _heading_specific_selection(
     def fetch_external(spec: tuple[str, set[str] | None]) -> str | None:
         query, strict_tokens = spec
         return next(
-            iter(_deposit_search_download(
-                query=query,
-                count=1,
-                plan_only=plan_only,
-                strict_tokens=strict_tokens,
-            )),
+            iter(
+                _deposit_search_download(
+                    query=query,
+                    count=1,
+                    plan_only=plan_only,
+                    strict_tokens=strict_tokens,
+                )
+            ),
             None,
         )
 
     if pending and plan_only:
         with ThreadPoolExecutor(max_workers=min(4, len(pending))) as pool:
-            futures = {
-                index: pool.submit(fetch_external, spec)
-                for index, spec in pending
-            }
+            futures = {index: pool.submit(fetch_external, spec) for index, spec in pending}
             for index, _spec in pending:
                 try:
                     external_results[index] = futures[index].result()
@@ -905,20 +1062,21 @@ def _heading_specific_selection(
     # section empty exactly as before.
     broadened: dict[int, str] = {}
     still_empty = [
-        index for index, record in enumerate(records)
-        if record["chosen"] is None
-        and external_results.get(index) is None
-        and index not in external_failures
+        index
+        for index, record in enumerate(records)
+        if record["chosen"] is None and external_results.get(index) is None and index not in external_failures
     ]
     # One model round-trip per empty heading would dominate the run time of a
     # long list. The exact pass is what fills a guide; broadening is a repair
     # for a few stubborn sections, so it is budgeted accordingly.
-    remaining_budget = max(0, limit - len(files) - sum(
-        1 for index, record in enumerate(records)
-        if record["chosen"] or external_results.get(index)
-    ))
+    remaining_budget = max(
+        0,
+        limit
+        - len(files)
+        - sum(1 for index, record in enumerate(records) if record["chosen"] or external_results.get(index)),
+    )
     attempted_expansions: dict[int, list[str]] = {}
-    for index in still_empty[:max(remaining_budget, 0)]:
+    for index in still_empty[: max(remaining_budget, 0)]:
         heading = records[index]["heading"]
         expanded_queries = expand_heading_query(str(heading.get("text") or ""), post_context)
         if expanded_queries:
@@ -929,12 +1087,14 @@ def _heading_specific_selection(
                 continue
             try:
                 found = next(
-                    iter(_deposit_search_download(
-                        query=expanded_query,
-                        count=1,
-                        plan_only=plan_only,
-                        strict_tokens=anchor_tokens,
-                    )),
+                    iter(
+                        _deposit_search_download(
+                            query=expanded_query,
+                            count=1,
+                            plan_only=plan_only,
+                            strict_tokens=anchor_tokens,
+                        )
+                    ),
                     None,
                 )
             except Exception as exc:
@@ -949,8 +1109,7 @@ def _heading_specific_selection(
         for index, expanded_query in broadened.items():
             heading_text = str(records[index]["heading"].get("text") or "başlık")
             diagnostics.append(
-                f"{heading_text!r} için tam eşleşme yoktu; genişletilmiş sorgu "
-                f"kullanıldı: {expanded_query!r}"
+                f"{heading_text!r} için tam eşleşme yoktu; genişletilmiş sorgu " f"kullanıldı: {expanded_query!r}"
             )
         # A broadened attempt that found nothing has to be reported too.
         # Otherwise the receipt looks as though expansion never ran, which is
@@ -960,8 +1119,7 @@ def _heading_specific_selection(
                 continue
             heading_text = str(records[index]["heading"].get("text") or "başlık")
             diagnostics.append(
-                f"{heading_text!r} için genişletilmiş sorgular da sonuç vermedi: "
-                + ", ".join(repr(q) for q in queries)
+                f"{heading_text!r} için genişletilmiş sorgular da sonuç vermedi: " + ", ".join(repr(q) for q in queries)
             )
 
     if diagnostics is not None:
@@ -985,8 +1143,7 @@ def _heading_specific_selection(
             spec = record.get("external_spec")
             query = spec[0] if spec else ""
             unmatched.append(
-                f"{str(record['heading'].get('text') or 'başlık')!r}"
-                + (f" (sorgu: {query!r})" if query else "")
+                f"{str(record['heading'].get('text') or 'başlık')!r}" + (f" (sorgu: {query!r})" if query else "")
             )
 
     if diagnostics is not None and unmatched:
@@ -995,16 +1152,10 @@ def _heading_specific_selection(
             if not files
             else f"{len(files)} başlık eşleşti, {len(unmatched)} başlık boş kaldı"
         )
-        diagnostics.append(
-            f"{prefix}; eşleşmeyen: " + ", ".join(unmatched[:5])
-        )
+        diagnostics.append(f"{prefix}; eşleşmeyen: " + ", ".join(unmatched[:5]))
 
     deduped_files = list(dict.fromkeys(files))
-    return deduped_files, {
-        file: assignments[file]
-        for file in deduped_files
-        if file in assignments
-    }
+    return deduped_files, {file: assignments[file] for file in deduped_files if file in assignments}
 
 
 def _heading_specific_files(
@@ -1063,9 +1214,12 @@ def _heading_to_search_query(heading_text: str, post_location: str = "") -> str:
 
     # Multi-word phrase replacements (must run before word-level)
     PHRASES = [
-        ("antik kenti", "ancient ruins"), ("antik kent", "ancient ruins"),
-        ("milli parki", "national park"), ("milli park", "national park"),
-        ("kaplicalari", "hot springs"), ("kaplica", "hot springs"),
+        ("antik kenti", "ancient ruins"),
+        ("antik kent", "ancient ruins"),
+        ("milli parki", "national park"),
+        ("milli park", "national park"),
+        ("kaplicalari", "hot springs"),
+        ("kaplica", "hot springs"),
     ]
     norm_text = _norm(text)
     for tr_phrase, en_phrase in PHRASES:
@@ -1076,23 +1230,40 @@ def _heading_to_search_query(heading_text: str, post_location: str = "") -> str:
 
     # Word-level translations
     WORD_MAP = {
-        "antik": "ancient", "tiyatro": "theater",
-        "plaji": "beach", "plaj": "beach",
-        "golu": "lake", "gol": "lake",
-        "selalesi": "waterfall", "selale": "waterfall",
-        "kalesi": "castle", "kale": "castle",
-        "kilisesi": "church", "kilise": "church",
-        "camii": "mosque", "cami": "mosque",
-        "vadisi": "valley", "vadi": "valley",
-        "ormani": "forest", "orman": "forest",
-        "yaylasi": "plateau", "yayla": "plateau",
-        "koyu": "bay", "koy": "bay",
-        "limani": "harbor", "liman": "harbor",
-        "adasi": "island", "ada": "island",
-        "magarasi": "cave", "magara": "cave",
-        "sahili": "coast", "sahil": "coast",
-        "tepesi": "hill", "tepe": "hill",
-        "nehri": "river", "nehir": "river",
+        "antik": "ancient",
+        "tiyatro": "theater",
+        "plaji": "beach",
+        "plaj": "beach",
+        "golu": "lake",
+        "gol": "lake",
+        "selalesi": "waterfall",
+        "selale": "waterfall",
+        "kalesi": "castle",
+        "kale": "castle",
+        "kilisesi": "church",
+        "kilise": "church",
+        "camii": "mosque",
+        "cami": "mosque",
+        "vadisi": "valley",
+        "vadi": "valley",
+        "ormani": "forest",
+        "orman": "forest",
+        "yaylasi": "plateau",
+        "yayla": "plateau",
+        "koyu": "bay",
+        "koy": "bay",
+        "limani": "harbor",
+        "liman": "harbor",
+        "adasi": "island",
+        "ada": "island",
+        "magarasi": "cave",
+        "magara": "cave",
+        "sahili": "coast",
+        "sahil": "coast",
+        "tepesi": "hill",
+        "tepe": "hill",
+        "nehri": "river",
+        "nehir": "river",
     }
     words = text.split()
     result = []
@@ -1191,36 +1362,104 @@ def _turkify_to_english_query(location_query: str) -> str:
         return unicodedata.normalize("NFKD", w).encode("ascii", "ignore").decode().lower()
 
     TR_STOP = {
-        "nerede", "nasil", "gidilir", "gezilecek", "yerler", "yerleri", "rehberi",
-        "rota", "rotasi", "rotalari", "seyahat", "tatil", "gezi", "bilmeniz",
-        "gerekenler", "once", "hakkinda", "ile", "icin", "ve", "bir", "en",
-        "iyi", "ucuz", "guncel", "detayli", "travel", "guide", "the", "and",
-        "notlari", "notlar", "deneyimler", "kisisel", "kent", "kenti",
-        "islemleri", "işlemleri", "esnek", "bilet", "kurallari", "kuralları",
-        "kurallar", "adasi", "adasi", "adası", "adalari", "adaları", "yakin",
-        "yakın", "yunan", "yaz", "tatilinde", "kacabileceginiz",
-        "kaçabileceğiniz", "kaçabileceginiz",
+        "nerede",
+        "nasil",
+        "gidilir",
+        "gezilecek",
+        "yerler",
+        "yerleri",
+        "rehberi",
+        "rota",
+        "rotasi",
+        "rotalari",
+        "seyahat",
+        "tatil",
+        "gezi",
+        "bilmeniz",
+        "gerekenler",
+        "once",
+        "hakkinda",
+        "ile",
+        "icin",
+        "ve",
+        "bir",
+        "en",
+        "iyi",
+        "ucuz",
+        "guncel",
+        "detayli",
+        "travel",
+        "guide",
+        "the",
+        "and",
+        "notlari",
+        "notlar",
+        "deneyimler",
+        "kisisel",
+        "kent",
+        "kenti",
+        "islemleri",
+        "işlemleri",
+        "esnek",
+        "bilet",
+        "kurallari",
+        "kuralları",
+        "kurallar",
+        "adasi",
+        "adasi",
+        "adası",
+        "adalari",
+        "adaları",
+        "yakin",
+        "yakın",
+        "yunan",
+        "yaz",
+        "tatilinde",
+        "kacabileceginiz",
+        "kaçabileceğiniz",
+        "kaçabileceginiz",
     }
     TR_GEO = {
-        "deniz": "sea", "dag": "mountain", "dagi": "mountain",
-        "koy": "bay", "koyu": "bay",
+        "deniz": "sea",
+        "dag": "mountain",
+        "dagi": "mountain",
+        "koy": "bay",
+        "koyu": "bay",
         "sehir": "city",
-        "kale": "castle", "kalesi": "castle",
-        "plaj": "beach", "plaji": "beach", "sahil": "coast", "sahili": "coast",
-        "orman": "forest", "ormani": "forest", "ormanlari": "forest",
-        "gol": "lake", "golu": "lake",
-        "nehir": "river", "nehri": "river",
-        "vadi": "valley", "vadisi": "valley",
-        "yayla": "plateau", "yaylasi": "plateau",
-        "selale": "waterfall", "selalesi": "waterfall",
-        "mezar": "tombs", "mezarlari": "tombs", "mezarligi": "cemetery",
-        "muze": "museum", "muzesi": "museum",
+        "kale": "castle",
+        "kalesi": "castle",
+        "plaj": "beach",
+        "plaji": "beach",
+        "sahil": "coast",
+        "sahili": "coast",
+        "orman": "forest",
+        "ormani": "forest",
+        "ormanlari": "forest",
+        "gol": "lake",
+        "golu": "lake",
+        "nehir": "river",
+        "nehri": "river",
+        "vadi": "valley",
+        "vadisi": "valley",
+        "yayla": "plateau",
+        "yaylasi": "plateau",
+        "selale": "waterfall",
+        "selalesi": "waterfall",
+        "mezar": "tombs",
+        "mezarlari": "tombs",
+        "mezarligi": "cemetery",
+        "muze": "museum",
+        "muzesi": "museum",
         "antik": "ancient",
         "kaya": "rock",
-        "tepe": "hill", "tepesi": "hill",
-        "ada": "island", "adasi": "island",
-        "liman": "harbor", "limani": "harbor",
-        "magara": "cave", "magarasi": "cave",
+        "tepe": "hill",
+        "tepesi": "hill",
+        "ada": "island",
+        "adasi": "island",
+        "liman": "harbor",
+        "limani": "harbor",
+        "magara": "cave",
+        "magarasi": "cave",
         "ornek": "",
     }
     result = []
@@ -1253,12 +1492,14 @@ def _enrich_query_for_theme(
     if source == "deposit":
         query = _turkify_to_english_query(query)
 
-    text = " ".join([
-        query.lower(),
-        str(post_context.get("title") or "").lower(),
-        str(post_context.get("slug") or "").lower(),
-        str(content_filter or "").lower(),
-    ])
+    text = " ".join(
+        [
+            query.lower(),
+            str(post_context.get("title") or "").lower(),
+            str(post_context.get("slug") or "").lower(),
+            str(content_filter or "").lower(),
+        ]
+    )
 
     if any(kw in text for kw in _THEME_NIGHT_KEYWORDS):
         if source == "unsplash":
@@ -1308,7 +1549,8 @@ def _deposit_search_download(
             query_tokens = _specific_tokens(_token_set_from_text(query))
             required_query_matches = min(2, len(query_tokens))
             filtered = [
-                r for r in results
+                r
+                for r in results
                 if _matches_anchor_tokens(_deposit_result_tokens(r), strict_tokens)
                 and _literal_matching_anchor_count(_deposit_result_tokens(r), query_tokens) >= required_query_matches
             ]
@@ -1335,9 +1577,7 @@ def _deposit_search_download(
             try:
                 path = deposit_provider.download(result["id"], session_id)
             except Exception as exc:
-                download_failures.append(
-                    f"{result.get('id', 'unknown')}:{type(exc).__name__}"
-                )
+                download_failures.append(f"{result.get('id', 'unknown')}:{type(exc).__name__}")
                 continue
             if path and path not in paths:
                 paths.append(path)
@@ -1384,6 +1624,7 @@ def _unsplash_search_download(query: str, count: int) -> list[str]:
     """Search + download from Unsplash. Returns an empty list on error."""
     try:
         from yo_unsplash import YOUnsplashDownloader
+
         d = YOUnsplashDownloader()
         # Quality filter: min 3000px width, prefer likes>0
         results = d.search(query, count=count * 3)
@@ -1403,17 +1644,21 @@ def _unsplash_search_download(query: str, count: int) -> list[str]:
         downloaded = []
         for i, r in enumerate(best, 1):
             try:
-                import tempfile, requests as _req, pathlib as _pl
+                import tempfile
+                import requests as _req
+                import pathlib as _pl
                 from src.utils.config import env_str
+
                 dl_url = r["links"]["download"]
                 access_key = env_str("UNSPLASH_ACCESS_KEY", "") or ""
                 resp = _req.get(dl_url, headers={"Authorization": f"Client-ID {access_key}"}, timeout=30)
                 resp.raise_for_status()
                 import re
+
                 photographer = r.get("user", {}).get("name", "Unknown")
-                photographer_safe = re.sub(r'[^a-zA-Z0-9]', '_', photographer)
+                photographer_safe = re.sub(r"[^a-zA-Z0-9]", "_", photographer)
                 slug = query.split()[0].lower()
-                dest = _pl.Path(tempfile.gettempdir()) / f"pictova_unsplash" / f"{slug}-{i}-by-{photographer_safe}.jpg"
+                dest = _pl.Path(tempfile.gettempdir()) / "pictova_unsplash" / f"{slug}-{i}-by-{photographer_safe}.jpg"
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 dest.write_bytes(resp.content)
                 downloaded.append(str(dest))

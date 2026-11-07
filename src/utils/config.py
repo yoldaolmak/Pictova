@@ -37,7 +37,7 @@ def load_project_env() -> None:
             if not line or line.startswith("#") or "=" not in line:
                 continue
             if line.startswith("export "):
-                line = line[len("export "):].lstrip()
+                line = line[len("export ") :].lstrip()
             key, value = line.split("=", 1)
             key = key.strip()
             if not key:

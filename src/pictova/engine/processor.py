@@ -33,10 +33,12 @@ def process_selected_images(
             )
         except PermissionError as exc:
             import sys
+
             print(f"  ⚠ Skipped (permission denied): {Path(src_file).name}\n    {exc}", file=sys.stderr)
             continue
         except Exception as exc:
             import sys
+
             print(f"  ✗ Processing error: {Path(src_file).name}: {exc}", file=sys.stderr)
             continue
         if result_data.get("is_panoramic"):

@@ -11,10 +11,31 @@ ALLOWED_SIZES = {(1200, 750), (1200, 1600), (1200, 1200), (900, 1200)}
 # is deliberately absent: naming one here only ever covered the country
 # someone had already published about.
 GENERIC_ANCHORS = {
-    "gezi", "gezilecek", "rehberi", "rota", "deneyimler", "seyahat",
-    "landmark", "travel", "tourism", "image", "photo", "view", "manzara",
-    "scene", "destination", "place", "city", "town", "country", "nature",
-    "outdoor", "person", "people", "woman", "man",
+    "gezi",
+    "gezilecek",
+    "rehberi",
+    "rota",
+    "deneyimler",
+    "seyahat",
+    "landmark",
+    "travel",
+    "tourism",
+    "image",
+    "photo",
+    "view",
+    "manzara",
+    "scene",
+    "destination",
+    "place",
+    "city",
+    "town",
+    "country",
+    "nature",
+    "outdoor",
+    "person",
+    "people",
+    "woman",
+    "man",
 }
 ANCHOR_EQUIVALENTS = {
     "train": {"train", "tren", "ray", "raylari", "rayları", "rail", "railway"},
@@ -46,7 +67,8 @@ def normalize_text(value: str) -> str:
 def _anchor_tokens_from_text(value: str) -> list[str]:
     tokens = re.findall(r"[a-z0-9çğıöşü]+", normalize_text(value))
     return [
-        token for token in tokens
+        token
+        for token in tokens
         if len(token) >= 4 and token not in BAD_METADATA_TOKENS and token not in GENERIC_ANCHORS
     ]
 
@@ -232,14 +254,14 @@ def validate_processed_asset(meta: Dict, process_info: Dict | None) -> list[str]
         errors.append("file too compressed")
     if file_size_kb >= 900:
         errors.append("file too heavy")
-        
+
     # Advanced Quality Gate
     blur_score = float(process_info.get("blur_score", 1000))
     if blur_score < 100:  # Genelde 100 altı belirgin bir bulanıklıktır (blur)
         errors.append("image is too blurry (low variance of laplacian)")
-        
+
     orig_w, orig_h = process_info.get("original_size", (0, 0))
     if orig_w > 0 and orig_h > 0 and (orig_w < 800 or orig_h < 600):
         errors.append("original image resolution is too low")
-        
+
     return errors
