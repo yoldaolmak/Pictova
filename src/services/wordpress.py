@@ -699,10 +699,17 @@ class YOWordPressUploader:
         repositioned = 0
         if reposition_managed:
             managed_ids = {int(item.get("media_id") or 0) for item in media_items if item.get("media_id")}
-            current_content, repositioned = self._remove_managed_media_blocks(
-                current_content,
-                managed_ids,
-            )
+            try:
+                current_content, repositioned = self._remove_managed_media_blocks(
+                    current_content,
+                    managed_ids,
+                )
+            except ValueError as error:
+                return {
+                    "success": False,
+                    "code": "mixed_media_ownership",
+                    "error": str(error),
+                }
             current_content = _remove_auto_media_region(current_content)
 
         # Normal attachment must never delete unrelated editorial blocks.
@@ -1070,7 +1077,14 @@ class YOWordPressUploader:
         except (OSError, ValueError, json.JSONDecodeError) as exc:
             return {"success": False, "error": str(exc)}
         managed_ids = set((manifest or {}).get("expected_media_ids") or [])
-        cleaned_content, removed_media = self._remove_managed_media_blocks(current_content, managed_ids)
+        try:
+            cleaned_content, removed_media = self._remove_managed_media_blocks(current_content, managed_ids)
+        except ValueError as error:
+            return {
+                "success": False,
+                "code": "mixed_media_ownership",
+                "error": str(error),
+            }
         cleaned_content = _remove_auto_media_region(cleaned_content)
 
         manifest_path = post_media_manifest_path(self.site, post_id)
@@ -1189,40 +1203,70 @@ class YOWordPressUploader:
         return cleaned.strip() + ("\n" if cleaned.strip() else ""), removed
 
     def _remove_managed_media_blocks(self, content: str, media_ids: set[int]) -> tuple[str, int]:
-        """Remove only blocks owned by the current Pictova manifest."""
+        """Remove only complete Gutenberg blocks owned by Pictova.
+
+        Gutenberg galleries nest image blocks. If even one nested image is
+        editorial/untracked, removing the wrapper would silently delete that
+        image too. Abort before changing any content instead of guessing
+        partial gallery reconstruction.
+        """
         if not media_ids:
             return content, 0
 
-        markers = {f"wp-image-{media_id}" for media_id in media_ids}
         removed = 0
+
+        def block_media_ids(block: str) -> set[int]:
+            # A word boundary prevents media 12 from matching media 123.
+            return {int(value) for value in re.findall(r"wp-image-(\\d+)\\b", block, flags=re.I)}
 
         def remove_if_managed(match: re.Match[str]) -> str:
             nonlocal removed
             block = match.group(0)
-            if any(marker in block for marker in markers):
-                removed += 1
-                return ""
-            return block
+            block_ids = block_media_ids(block)
+            if not block_ids & media_ids:
+                return block
+            if not block_ids <= media_ids:
+                raise ValueError("Managed media shares a Gutenberg block with untracked images")
+
+            if re.match(r"<!-- wp:gallery\\b", block, flags=re.I):
+                children = re.findall(
+                    r"<!-- wp:image\\b.*?<!-- /wp:image -->",
+                    block, flags=re.S | re.I,
+                )
+                if not children or any(
+                    len(block_media_ids(child)) != 1 for child in children
+                ):
+                    raise ValueError("Gallery contains images without unambiguous managed identity")
+                remainder = re.sub(
+                    r"<!-- wp:image\\b.*?<!-- /wp:image -->", "", block, flags=re.S | re.I,
+                )
+                if re.search(r"<img\\b|<figcaption\\b|<!-- wp:(?!gallery\\b)", remainder, flags=re.I):
+                    raise ValueError("Gallery contains editorial content outside managed image blocks")
+
+            removed += 1
+            return ""
 
         cleaned = re.sub(
-            r"<!-- wp:gallery\b.*?<!-- /wp:gallery -->\s*",
+            r"<!-- wp:gallery\\b.*?<!-- /wp:gallery -->\\s*",
             remove_if_managed,
             content,
             flags=re.S | re.I,
         )
         cleaned = re.sub(
-            r"<!-- wp:image\b.*?<!-- /wp:image -->\s*",
+            r"<!-- wp:image\\b.*?<!-- /wp:image -->\\s*",
             remove_if_managed,
             cleaned,
             flags=re.S | re.I,
         )
+        if not removed:
+            return content, 0
         cleaned = re.sub(
-            re.escape(AUTO_MEDIA_START) + r"\s*" + re.escape(AUTO_MEDIA_END) + r"\s*",
+            re.escape(AUTO_MEDIA_START) + r"\\s*" + re.escape(AUTO_MEDIA_END) + r"\\s*",
             "",
             cleaned,
             flags=re.I,
         )
-        return cleaned.strip() + ("\n" if cleaned.strip() else ""), removed
+        return cleaned.strip() + ("\\n" if cleaned.strip() else ""), removed
 
 
 def _strip_html(value: str) -> str:
