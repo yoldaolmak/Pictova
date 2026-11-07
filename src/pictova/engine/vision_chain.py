@@ -36,6 +36,10 @@ from src.utils.config import env_str
 _GEMINI_REJECTED_KEYS: set[str] = set()
 _GEMINI_COOLDOWN_UNTIL: dict[str, float] = {}
 _GEMINI_COOLDOWN_SECONDS = 15 * 60
+# Visual metadata is short JSON. Reject excessive or ambiguous model replies
+# rather than reflecting untrusted photo text into logs or error receipts.
+_MAX_MODEL_CONTENT_CHARS = 32 * 1024
+_MAX_LOCAL_RESPONSE_BYTES = 64 * 1024
 
 
 def _gemini_key_available(api_key: str) -> bool:
@@ -89,17 +93,55 @@ def _strip_ansi(text: str) -> str:
 
 
 def _parse_json_from_text(text: str) -> Dict:
-    """Extract a JSON block from text."""
+    """Accept one bounded JSON object, without echoing private model output."""
+    error = "JSON bulunamadı veya model yanıtı geçersiz"
+    if not isinstance(text, str) or len(text) > _MAX_MODEL_CONTENT_CHARS:
+        raise ValueError(error)
     text = text.strip()
-    # ```json ... ``` block
-    m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.S)
-    if m:
-        return json.loads(m.group(1))
-    # First { ... }
-    m = re.search(r"\{.*\}", text, re.S)
-    if m:
-        return json.loads(m.group(0))
-    raise ValueError(f"JSON bulunamadı: {text[:200]}")
+    fenced = re.search(r"```(?:json)?\\s*(.*?)\\s*```", text, flags=re.S | re.I)
+    if fenced:
+        text = fenced.group(1).strip()
+    elif not text.startswith("{"):
+        # Some CLI clients prefix a short explanation to their JSON object.
+        # Decode from the first object without a greedy regex that breaks on
+        # nested strings, embedded braces, or a second brace in ordinary text.
+        start = text.find("{")
+        if start == -1 or text.startswith("["):
+            raise ValueError(error)
+        text = text[start:]
+
+    try:
+        result, consumed = json.JSONDecoder().raw_decode(text)
+    except (ValueError, TypeError) as exc:
+        raise ValueError(error) from exc
+    if not isinstance(result, dict):
+        raise ValueError(error)
+    # A second JSON object is ambiguous and cannot be accepted as metadata.
+    trailing = text[consumed:].strip()
+    if trailing.startswith("{") or trailing.startswith("["):
+        raise ValueError(error)
+    return result
+
+
+def _parse_openai_compatible_completion(data: Any) -> Dict:
+    """Extract vision JSON from a local/OpenRouter-style chat completion."""
+    error = "Model completion is invalid or incomplete"
+    if not isinstance(data, dict):
+        raise ValueError(error)
+    choices = data.get("choices")
+    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+        raise ValueError(error)
+    first = choices[0]
+    # Do not trust truncated or content-filtered partial model outputs.
+    if first.get("finish_reason") not in (None, "stop"):
+        raise ValueError(error)
+    message = first.get("message")
+    if not isinstance(message, dict) or not isinstance(message.get("content"), str):
+        raise ValueError(error)
+    content = _strip_ansi(message["content"])
+    if not content.strip():
+        raise ValueError(error)
+    return _parse_json_from_text(content)
 
 
 def _vision_prompt(image_path: str, location_hint: str, post_context: Dict) -> str:
@@ -422,11 +464,16 @@ def _analyze_lm_studio(
     try:
         req_models = urllib.request.Request(url_models)
         with urllib.request.urlopen(req_models, timeout=2) as resp:
-            models_data = json.loads(resp.read().decode("utf-8"))
-            models = models_data.get("data", [])
-            if not models:
-                raise RuntimeError("LM Studio'da yuklu model bulunamadi")
-            model_id = _pick_lm_studio_vision_model(models)
+            response_bytes = resp.read(_MAX_LOCAL_RESPONSE_BYTES + 1)
+        if len(response_bytes) > _MAX_LOCAL_RESPONSE_BYTES:
+            raise RuntimeError("LM Studio model list exceeded response limit")
+        models_data = json.loads(response_bytes.decode("utf-8"))
+        if not isinstance(models_data, dict) or not isinstance(models_data.get("data"), list):
+            raise RuntimeError("LM Studio model list is invalid")
+        models = models_data["data"]
+        if not models:
+            raise RuntimeError("LM Studio'da yuklu model bulunamadi")
+        model_id = _pick_lm_studio_vision_model(models)
     except RuntimeError:
         raise
     except Exception as e:
@@ -466,22 +513,19 @@ def _analyze_lm_studio(
 
     try:
         with urllib.request.urlopen(req, timeout=180) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        err_body = e.read().decode("utf-8")
-        # If model doesn't support images, skip gracefully
-        if "does not support image" in err_body or e.code == 400:
-            raise RuntimeError(f"LM Studio model does not support images: {err_body[:200]}")
-        raise RuntimeError(f"LM Studio API Error: {e.code} - {err_body[:200]}")
-    except Exception as e:
-        raise RuntimeError(f"LM Studio API Connection Error: {e}")
-
-    choice = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-    output = _strip_ansi(choice.strip())
-    if not output:
-        raise RuntimeError("LM Studio returned an empty response")
-
-    return _parse_json_from_text(output)
+            response_bytes = resp.read(_MAX_LOCAL_RESPONSE_BYTES + 1)
+        if len(response_bytes) > _MAX_LOCAL_RESPONSE_BYTES:
+            raise ValueError("Local model response exceeds limit")
+        data = json.loads(response_bytes.decode("utf-8"))
+        return _parse_openai_compatible_completion(data)
+    except urllib.error.HTTPError as exc:
+        # Local model servers may include prompts or OCR text in error bodies.
+        # Never copy those bodies into Pictova's CLI, job state, or logs.
+        raise RuntimeError(f"LM Studio HTTP {exc.code}") from exc
+    except (ValueError, TypeError, KeyError) as exc:
+        raise RuntimeError("LM Studio returned invalid model response") from exc
+    except Exception as exc:
+        raise RuntimeError(f"LM Studio transport failed: {type(exc).__name__}") from exc
 
 
 # ── Main chain ────────────────────────────────────────────────────────────────
