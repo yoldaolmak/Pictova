@@ -513,6 +513,14 @@ def build_process_result(
     icloud_warnings: list[str] = []
     _files = resolve_icloud_files(selection.get("files", []), icloud_warnings)
     processed = process_selected_images(_files)
+    failures = list(processed.get("failed_images") or [])
+    panoramics = processed.get("panoramic_images") or {}
+    warnings = list(selection.get("warnings", [])) + icloud_warnings
+    warnings.extend(f"{item.get('file')}: {item.get('reason')}" for item in failures)
+    if panoramics:
+        warnings.append(f"{len(panoramics)} panoramic image(s) excluded from standard publishing")
+    processed_count = len(processed.get("processed_images", []))
+    stage_status = "failed" if not processed_count else ("partial" if warnings else "success")
     return {
         "command": "process",
         "site": site,
@@ -520,14 +528,13 @@ def build_process_result(
         "request": request,
         "post_context": summarize_post_context(post_context),
         "constraints": constraints,
-        "status": "success",
+        "status": stage_status,
         "selection": selection,
         "processed_images": processed.get("processed_images", []),
-        "panoramic_images": processed.get("panoramic_images", {}),
+        "panoramic_images": panoramics,
+        "failed_images": failures,
         "work_dir": processed.get("work_dir"),
-        # An iCloud asset that failed to download silently disappeared from the
-        # result; the caller saw a short list with no reason for it.
-        "warnings": list(selection.get("warnings", [])) + icloud_warnings,
+        "warnings": warnings,
     }
 
 
@@ -711,6 +718,14 @@ def _execute_native_attach_locked(
     _resolved_files = resolve_icloud_files(selected_assets, selection_warnings)
     processed = process_selected_images(_resolved_files)
     processed_images = processed.get("processed_images", [])
+    processing_failures = list(processed.get("failed_images") or [])
+    selection_warnings.extend(
+        f"{item.get('file')}: {item.get('reason')}" for item in processing_failures
+    )
+    if processed.get("panoramic_images"):
+        selection_warnings.append(
+            f"{len(processed['panoramic_images'])} panoramic image(s) excluded from publishing"
+        )
     selector_assignments = dict(selection.get("heading_assignments", {}))
     approved_assignments = request.get("approved_heading_assignments", {})
     if isinstance(approved_assignments, dict):
@@ -756,7 +771,7 @@ def _execute_native_attach_locked(
         )
         failure["selected_assets"] = selected_assets
         failure["rejected_assets"] = blocked
-        failure["warnings"].extend(metadata_warnings)
+        failure["warnings"].extend(selection_warnings + metadata_warnings)
         failure["raw"] = {"selection": selection, "processed": processed}
         return failure
     finalized_files, finalized_metadata, finalized_details = finalize_publish_assets(
