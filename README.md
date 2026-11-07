@@ -12,7 +12,7 @@ Requires Python 3.10–3.12 and a configured WordPress Application Password.
 git clone https://github.com/yoldaolmak/Pictova.git
 cd Pictova
 python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt && pip install -e .
+pip install -e .
 cp .env.example .env
 pictova health
 ```
@@ -49,6 +49,7 @@ pictova attach --site yoldaolmak --post 265713 --count 4 --source auto --engine 
 ## Development
 
 ```bash
+python3 -m pip install -e '.[dev]'
 python3 -m pytest -q
 ```
 
