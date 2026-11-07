@@ -21,14 +21,31 @@ def classify_publish_result(published: Mapping[str, Any], *, warnings: bool = Fa
              be verified and requires human reconciliation;
     failed: no verified post edit and no successful idempotent replay.
     """
+    failed_attempts = published.get("failed") or []
+    upload_uncertain = any(
+        isinstance(item, dict) and (item.get("orphaned_media_id") or item.get("upload_unconfirmed"))
+        for item in failed_attempts
+    )
+    rollback = published.get("rollback") or {}
+    rollback_uncertain = bool(rollback) and (
+        rollback.get("attempted") is not True
+        or bool(rollback.get("delete_failures"))
+        or bool(rollback.get("kept_referenced_media_ids"))
+    )
+    needs_reconciliation = bool(upload_uncertain or rollback_uncertain)
+
     content = published.get("content_update")
     if not isinstance(content, dict):
-        return "failed", "missing_content_update", True
+        return "failed", "missing_content_update", needs_reconciliation or bool(published.get("uploaded"))
 
     if content.get("success") is not True:
         code = str(content.get("code") or "")
         reason = code or "post_content_update_failed"
-        uncertain = code in _UNCERTAIN_POST_WRITE or "could not be verified" in str(content.get("error") or "")
+        uncertain = (
+            code in _UNCERTAIN_POST_WRITE
+            or "could not be verified" in str(content.get("error") or "")
+            or needs_reconciliation
+        )
         return ("partial" if uncertain else "failed"), reason, uncertain
 
     try:
@@ -44,7 +61,7 @@ def classify_publish_result(published: Mapping[str, Any], *, warnings: bool = Fa
         return "failed", "no_verified_media_placement", False
 
     if published.get("failed") or warnings:
-        return "partial", "verified_with_warnings", False
+        return "partial", "verified_with_warnings", needs_reconciliation
 
     if idempotent and inserted == 0:
         return "success", "already_present", False
