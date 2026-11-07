@@ -161,7 +161,7 @@ def test_studio_responsive_review_and_approved_publish(studio_server, width, hei
             page.locator("#confirm").check()
             assert page.locator("#apply-button").is_enabled()
             page.locator("#apply-button").click()
-            page.locator("#plan-state").get_by_text("Yayımlandı").wait_for()
+            page.wait_for_function("() => document.querySelector('#plan-state').textContent === 'Yayımlandı'")
             assert StudioHandler.approvals == [{
                 "plan_id": "plan-1", "accepted_ids": ["local-1"], "confirm_paid": False
             }]
@@ -191,7 +191,7 @@ def test_studio_paid_candidate_requires_separate_consent(studio_server):
             page.locator("#confirm-paid").check()
             assert page.locator("#apply-button").is_enabled()
             page.locator("#apply-button").click()
-            page.locator("#plan-state").get_by_text("Yayımlandı").wait_for()
+            page.wait_for_function("() => document.querySelector('#plan-state').textContent === 'Yayımlandı'")
             assert StudioHandler.approvals == [{
                 "plan_id": "plan-1",
                 "accepted_ids": ["local-1", "stock-2"],
