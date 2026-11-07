@@ -55,6 +55,10 @@ python3 -m pytest -q
 
 CI tests Python 3.10, 3.11 and 3.12, checks Flake8/Black, and checks Studio JavaScript syntax.
 
+A media upload is not a successful publication until WordPress content and
+managed-media placement are verified. Partial and interrupted jobs require
+operator inspection before retrying; see [Operation lifecycles](docs/architecture/lifecycles.md).
+
 [Studio](docs/guides/studio.md) · [CLI](docs/reference/cli.md) · [Configuration](docs/reference/configuration.md) · [Architecture](docs/architecture/overview.md) · [Security](SECURITY.md) · [Documentation index](docs/README.md) · [Contributing](CONTRIBUTING.md)
 
 MIT licensed. See [LICENSE](LICENSE).
