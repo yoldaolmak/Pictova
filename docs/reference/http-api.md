@@ -1,60 +1,38 @@
-# HTTP API Reference
-
-Start the authenticated local server:
+# Local HTTP API
 
 ```bash
 export PICTOVA_HTTP_TOKEN="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
 pictova serve --host 127.0.0.1 --port 8040
 ```
 
-The server refuses to start without a token of at least 32 ASCII characters.
-It binds **only to loopback** (127.0.0.1 or localhost); it does not provide TLS
-and must not be exposed to the LAN or public Internet. Every endpoint, including
-health checks, requires `Authorization: Bearer <token>`. Keep the token out of
-logs, repositories, and shared command transcripts.
+The service binds to loopback only. JSON endpoints require `Authorization: Bearer <token>`; the static Studio HTML/CSS/JS shell is public but contains no user data. Never expose the port to a network.
 
-POST requests require 'Content-Type: application/json' and a body of at most
-1 MiB. Existing JSON write routes reject browser Origin headers. The dedicated
-Studio routes accept only an identical local Origin and a valid Bearer token.
-Every route checks the Host authority against the local bound listener port,
-rejecting DNS-rebinding aliases.
-All bodies are JSON. The API mirrors the CLI’s structured result contract.
+Requests must use `Content-Type: application/json`, at most 1 MiB. Existing non-Studio write endpoints reject browser `Origin` headers. Studio POST endpoints require the local same origin and a valid token. Host headers are checked against the bound listener.
 
-| Method | Path | Write? | Purpose |
-|---|---|---:|---|
-| 'GET' | '/studio' | No | Public static shell only; no user or site data without token. |
-| 'GET' | '/studio/app.js', '/studio/style.css' | No | Static local UI assets. |
-| 'POST' | '/studio/plan' | No | Resolve configured post URL; hold expiring plan. |
-| 'GET' | '/studio/preview?plan=...&candidate=...' | No | Token-protected local thumbnail. |
-| 'POST' | '/studio/apply' | Queues a write | One-use, selected candidate IDs plus explicit paid consent. |
-| `GET` | `/health` | No | Configuration and readiness summary. |
-| `GET` | `/stats` | No | Local visual-index summary. |
-| `POST` | `/review` | No | Post context and candidate preview. |
-| `POST` | `/plan` | No | Candidate plan. |
-| `POST` | `/process` | No | Process without upload. |
-| `POST` | `/attach` | Yes | Native attach pipeline. |
-| `POST` | `/guard` | Mode-dependent | Managed-media inspection/repair. |
-| `POST` | `/search` | No | Semantic image search. |
-| `POST` | `/gallery` | No | Gallery/index query. |
-| `POST` | `/jobs/attach` | Queues a write | Background attach job. |
-| `GET` | `/jobs`, `/jobs/{id}` | No | Job state. |
+| Route | Action |
+| --- | --- |
+| `GET /health`, `GET /stats` | Check readiness and local index |
+| `POST /review`, `POST /plan` | Inspect article and candidate plan; no WordPress write |
+| `POST /process` | Prepare images; may download/licence assets, no WordPress write |
+| `POST /attach` | Publish via the native pipeline |
+| `POST /guard` | Inspect; explicitly requested mutation modes can write |
+| `POST /search`, `POST /gallery` | Image searches |
+| `POST /jobs/attach` | Queue a publish job in process memory |
+| `GET /jobs`, `GET /jobs/{id}` | Inspect job state |
+| `GET /studio` | Static browser shell |
+| `POST /studio/plan` | Create an expiring reviewed plan from a configured WordPress URL |
+| `GET /studio/preview?plan=…&candidate=…` | Authenticated local preview |
+| `POST /studio/apply` | Apply only accepted candidate IDs; licensed assets require separate consent |
 
-Example dry run:
+Example:
 
 ```bash
-curl -sS -X POST http://127.0.0.1:8040/plan \
-  -H 'Content-Type: application/json' \
+curl -sS http://127.0.0.1:8040/plan \
   -H "Authorization: Bearer $PICTOVA_HTTP_TOKEN" \
+  -H "Content-Type: application/json" \
   -d '{"site":"yoldaolmak","post_id":265713,"count":4,"source":"auto"}'
 ```
 
-Studio may be opened with 'pictova studio' (which launches a browser and
-provides its ephemeral token in the URL fragment). The fragment is removed
-from the browser address bar immediately and is never sent as a query string.
-In the existing 'serve' mode an operator may enter the configured Bearer token
-into the static Studio login field. The browser does not receive raw private
-local paths; only opaque candidate IDs.
+Studio uses the same local HTTP server. Start it with `pictova studio` to open a browser with a temporary token, or open `/studio` and enter the existing token.
 
-An HTTP 400 contains a structured failed result. Provider or exact-match
-failures are represented as no selected files plus diagnostics, not as a
-generic fallback.
+Jobs are not durable across server restarts. Consult the operation receipt and WordPress before retrying an uncertain write.
