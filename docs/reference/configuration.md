@@ -65,7 +65,7 @@ WP_APP_PASSWORD=xxxx xxxx xxxx xxxx xxxx xxxx
 
 # Image sources
 UNSPLASH_ACCESS_KEY=abc123
-YO_VISUAL_MEMORY_DB=/Users/yoldaolmak/Projects/Pictova/data/visual_memory.db
+YO_VISUAL_MEMORY_DB=/absolute/path/to/visual_memory.db
 
 # Vision (optional, improves metadata quality)
 GEMINI_API_KEY=...
