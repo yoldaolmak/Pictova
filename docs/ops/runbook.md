@@ -39,8 +39,8 @@ pictova guard --site yoldaolmak --post 265713
 ```
 
 `guard --repair`, `--reposition`, `--adopt`, and `--reset` are separate
-write operations; verify ownership and back up the post before using them. If a Pictova image
-shares a Gutenberg gallery with an editor-owned image or an untracked caption,
+write operations; verify ownership and back up the post before using them.
+If a Pictova image shares a Gutenberg gallery with an editor-owned image or an untracked caption,
 reset/reposition refuses the operation rather than removing the shared block.
 
 ## Verify the local installation
@@ -49,8 +49,10 @@ reset/reposition refuses the operation rather than removing the shared block.
 python3.10 -m pytest -q
 ```
 
-Automated tests use isolated fixtures and mocked providers; a successful
-test run does not prove live WordPress publication or visual accuracy.
+Automated tests use isolated fixtures and mocked providers, including a
+synthetic OpenAI-compatible response that exercises the real metadata and
+quality gates. This proves contract behavior, not real visual recognition or
+live WordPress publishing.
 
 ## Optional local HTTP server
 
@@ -86,7 +88,7 @@ These commands update local index state, not WordPress. Follow the
   title; the correct action may be to leave it empty.
 - A provider error: verify configuration and connectivity; do not rerun a
   licensed download blindly or weaken matching. DepositPhotos images exceeding
-64 MiB are rejected, including cached and partially downloaded files.
+  64 MiB are rejected, including cached and partially downloaded files.
 - Local images rejected during `process`: inspect the quality report and
   original file, without bypassing rejection.
 - WordPress access denied: verify the selected site profile and its

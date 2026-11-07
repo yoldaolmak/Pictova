@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Fixed
+- Validate size, shape and completion status of OpenAI-compatible local vision responses; exclude raw model text and HTTP error bodies from operator-visible failures.
+- Add an offline OpenRouter-style synthetic model contract test that exercises real metadata, quality rejection and failure fallback without API credentials.
 - Limit DepositPhotos licensed image transfers and resumed/cached files to 64 MiB, and reject unsafe asset IDs before constructing paths or licensing requests.
 - Reject managed-media repair or reset when its Gutenberg gallery contains untracked images or editorial gallery captions; prevent media ID prefix collisions (e.g. 12 vs 123).
 - Require section-specific image anchors rather than accepting the article's broad destination for a different H2/H3.
