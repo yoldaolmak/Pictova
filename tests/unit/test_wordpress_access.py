@@ -154,3 +154,38 @@ def test_refresh_managed_media_captions_preserves_positions_and_updates_attachme
         caption="İnsan yalnız seyahatten değil, kendi komutasına geçmekten korkuyor.",
         description="İnsan yalnız seyahatten değil, kendi komutasına geçmekten korkuyor.",
     )
+
+
+
+@pytest.mark.parametrize("identity", [None, {}, {"id": "1"}, {"id": 0}])
+def test_verify_access_rejects_http_200_without_wordpress_identity(identity):
+    from src.services.wordpress import YOWordPressUploader
+
+    class Response:
+        status_code = 200
+
+        def json(self):
+            if identity is None:
+                raise ValueError("WordPress returned an HTML home page")
+            return identity
+
+    uploader = object.__new__(YOWordPressUploader)
+    uploader.base_url = "https://example.test"
+    uploader.session = MagicMock()
+    uploader.session.get.return_value = Response()
+
+    assert uploader.verify_access() == {
+        "status": "unreachable", "http_status": 200, "reason": "invalid_rest_identity",
+    }
+
+
+def test_verify_access_accepts_verified_wp_rest_user_identity():
+    from src.services.wordpress import YOWordPressUploader
+
+    uploader = object.__new__(YOWordPressUploader)
+    uploader.base_url = "https://example.test"
+    uploader.session = MagicMock()
+    uploader.session.get.return_value.status_code = 200
+    uploader.session.get.return_value.json.return_value = {"id": 9, "slug": "editor"}
+
+    assert uploader.verify_access() == {"status": "ready", "http_status": 200}
