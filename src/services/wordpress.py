@@ -293,6 +293,7 @@ class YOWordPressUploader:
             "Content-Disposition": f'attachment; filename="{file_p.name}"',
             "Content-Type": "image/webp",
         }
+        created_media_id = None
 
         try:
             resp = self.session.post(
@@ -304,7 +305,10 @@ class YOWordPressUploader:
             resp.raise_for_status()
 
             media = resp.json()
-            media_id = media["id"]
+            media_id = int(media["id"])
+            if media_id < 1:
+                raise ValueError("WordPress returned an invalid media ID")
+            created_media_id = media_id
 
             # Update media metadata
             update_data = {
@@ -331,12 +335,30 @@ class YOWordPressUploader:
                 "file": file_p.name,
             }
 
-        except requests.exceptions.RequestException as e:
-            return {
-                "success": False,
-                "error": _request_error_detail(e),
-                "file": file_p.name,
-            }
+        except (requests.exceptions.RequestException, ValueError, TypeError, KeyError) as exc:
+            detail = (
+                _request_error_detail(exc)
+                if isinstance(exc, requests.exceptions.RequestException)
+                else f"WordPress media response invalid ({type(exc).__name__})"
+            )
+            failure = {"success": False, "error": detail, "file": file_p.name}
+            if created_media_id is None:
+                # The HTTP media POST may have committed before a timeout.
+                failure["upload_unconfirmed"] = True
+                return failure
+
+            # New media exists but its metadata failed; it is not yet linked
+            # to a post. Compensate before letting the batch continue.
+            try:
+                deleted = self.delete_media(created_media_id)
+            except Exception:
+                deleted = {"success": False, "error": "cleanup raised an error"}
+            if deleted.get("success"):
+                failure["reverted_media_id"] = created_media_id
+            else:
+                failure["orphaned_media_id"] = created_media_id
+                failure["cleanup_error"] = str(deleted.get("error") or "cleanup not verified")
+            return failure
 
     def attach_to_post(
         self,
@@ -1667,6 +1689,11 @@ def upload_images_batch(
                 {
                     "file": file_path,
                     "error": upload_result["error"],
+                    **{
+                        key: upload_result[key]
+                        for key in ("orphaned_media_id", "reverted_media_id", "upload_unconfirmed", "cleanup_error")
+                        if key in upload_result
+                    },
                 }
             )
             continue
@@ -1698,6 +1725,14 @@ def upload_images_batch(
             )
         else:
             print(f"  ⚠️  Upload OK but attach failed: {attach_result['error']}")
+            results["failed"].append(
+                {
+                    "file": Path(file_path).name,
+                    "media_id": media_id,
+                    "code": "post_media_association_failed",
+                    "error": attach_result["error"],
+                }
+            )
             results["uploaded"].append(
                 {
                     "file": Path(file_path).name,
