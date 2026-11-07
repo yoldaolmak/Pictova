@@ -17,7 +17,7 @@ Requests must use `Content-Type: application/json`, at most 1 MiB. Existing non-
 | `POST /attach` | Publish via the native pipeline |
 | `POST /guard` | Inspect; explicitly requested mutation modes can write |
 | `POST /search`, `POST /gallery` | Image searches |
-| `POST /jobs/attach` | Queue a publish job in process memory |
+| `POST /jobs/attach` | Queue a publish job with a durable local status receipt |
 | `GET /jobs`, `GET /jobs/{id}` | Inspect job state |
 | `GET /studio` | Static browser shell |
 | `POST /studio/plan` | Create an expiring reviewed plan from a configured WordPress URL |
@@ -35,4 +35,9 @@ curl -sS http://127.0.0.1:8040/plan \
 
 Studio uses the same local HTTP server. Start it with `pictova studio` to open a browser with a temporary token, or open `/studio` and enter the existing token.
 
-Jobs are not durable across server restarts. Consult the operation receipt and WordPress before retrying an uncertain write.
+Job status receipts are stored locally with restricted permissions. On a
+restart, unfinished queued/running records are reported as `interrupted` and
+never re-executed automatically. Terminal `partial` is distinct from
+`success`; neither an uploaded media ID nor a queued job confirms that the
+article was updated. Always inspect the operation receipt and WordPress before
+retrying an uncertain write.
