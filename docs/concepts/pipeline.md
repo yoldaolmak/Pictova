@@ -1,103 +1,48 @@
-# The Pipeline
+# Review, Plan, Process, Attach
 
-Every Pictova attach operation runs through the same four-stage pipeline. You can enter at any stage, inspect the output, and decide whether to continue.
+Pictova uses four ordered stages. A returned image is not necessarily safe to
+publish: the selection gate and the eventual placement need to agree on its
+specific heading.
 
-## Stages
+| Stage | Reads / produces | Changes WordPress? |
+| --- | --- | --- |
+| `review` | WordPress article context and available headings | No |
+| `plan` | Candidate selection, heading assignments and warnings | No |
+| `process` | Locally prepared image files and validation outcomes | No |
+| `attach` | Upload, Gutenberg insertion, media verification and result | **Yes** |
 
-```
-review → plan → process → attach
-```
-
-### 1. review
-
-Reads the post from WordPress and returns its context without touching any images.
+## Inspect before publishing
 
 ```bash
 pictova review --site yoldaolmak --post 265713
+pictova plan --site yoldaolmak --post 265713 --count 4 --source auto
+pictova process --site yoldaolmak --post 265713 --count 4 --source auto --engine native
 ```
 
-Output includes: title, excerpt, derived location query, derived topic, category and tag list, current image count in the post.
+Use `plan` to inspect each candidate's target heading, source and warnings.
+If the article names a particular location but no candidate supports that
+name, an incomplete selection is the intended result. `process` may
+download and transform images locally but does not upload them to WordPress.
 
-Use this to verify Pictova is reading the post correctly before committing to image selection.
-
-### 2. plan
-
-Queries all configured sources and returns the candidate image list without downloading or processing anything.
+## Publish deliberately
 
 ```bash
-pictova plan --site yoldaolmak --post 265713 --count 4 --people-first
+pictova attach --site yoldaolmak --post 265713 --count 4 --source auto --engine native
 ```
 
-Output includes: each candidate asset path or URL, its source, its semantic score, its quality score, and any flags (face detected, aspect ratio match, etc.).
+`attach` is the only normal publishing stage. It uses the native engine's
+selection, quality, metadata and managed-media checks. The requested count is
+a maximum; missing exact candidates must not be replaced with unrelated
+images. Existing editorial image blocks are not general cleanup targets.
 
-Use this to verify the selection logic before spending time on processing.
+The CLI still accepts `--engine legacy` for compatibility. It invokes an
+older orchestrator and does **not** carry the same native guarantees. Do not
+use it as the default publishing route or extend its implementation.
 
-### 3. process
+## Local HTTP
 
-Downloads and processes the selected images — resizing and format conversion —
-without publishing to WordPress.
-
-```bash
-pictova process --site yoldaolmak --post 265713 --count 4 --people-first
-```
-
-Output includes: processed file paths, dimensions, quality gate result, any rejected assets and why.
-
-Use this to verify image quality and processing output before upload.
-
-### 4. attach
-
-Runs the full pipeline: review + plan + process + upload to WordPress + insert Gutenberg blocks.
-
-```bash
-pictova attach --site yoldaolmak --post 265713 --count 4 --people-first
-```
-
-Output is a structured JSON contract:
-
-```json
-{
-  "site": "yoldaolmak",
-  "post_id": 265713,
-  "selected_assets": [...],
-  "rejected_assets": [...],
-  "uploaded_media_ids": [101, 102, 103, 104],
-  "inserted_blocks": [...],
-  "warnings": [],
-  "duration_ms": 4210
-}
-```
-
-## Engine Paths
-
-Two engine implementations exist:
-
-- **Native** (default): built entirely on `src/pictova/engine/*`. Fail-closed — an asset the quality gate
-  rejects is never published.
-- **Legacy** (`--engine legacy`): wraps the original orchestrator. Kept for comparison; its quality gate can be
-  disabled with `YO_ALLOW_FALLBACK_UPLOAD`, so it can publish assets that failed validation.
-
-```bash
-pictova attach --site yoldaolmak --post 265713 --count 4          # native
-pictova attach --site yoldaolmak --post 265713 --count 4 --engine legacy
-```
-
-See [Native vs Legacy Engine](../architecture/native-vs-legacy.md) for the full comparison.
-
-## Async Jobs (HTTP)
-
-When running as an HTTP service, `attach` is a long-running operation. Use the async job endpoint instead of the synchronous attach endpoint:
-
-```bash
-# Start job
-curl -X POST http://127.0.0.1:8040/jobs/attach \
-  -H 'Content-Type: application/json' \
-  -d '{"site":"yoldaolmak","post_id":265713,"count":4,"people_first":true}'
-
-# Returns: {"job_id": "abc123", "status": "pending"}
-
-# Poll for result
-curl http://127.0.0.1:8040/jobs/abc123
-```
-
-See [HTTP API Reference](../reference/http-api.md) for full job lifecycle details.
+An optional loopback-only HTTP service exposes the same workflow. It requires
+a private Bearer token on **every** endpoint, including health and job reads.
+See [HTTP API Reference](../reference/http-api.md) for authentication,
+request limits and asynchronous attach jobs. The HTTP service is not a
+public-network application.

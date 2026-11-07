@@ -1,63 +1,48 @@
-# Overview
+# Pictova Overview
 
-## What Pictova Is
+Pictova is an independent image-selection and WordPress placement application.
+Its job is not to fill image slots at any cost; it is to find an image whose
+available evidence supports the article and the specific H2/H3 where it belongs.
 
-Pictova is a visual intelligence layer for content publishing. Given a WordPress post, it finds the right images, processes them, and places them — without human intervention.
+## What it does
 
-It connects to any combination of image sources:
+- Reads a WordPress article's title, slug and section headings.
+- Searches the configured local Photos index and supported external providers.
+- Checks named heading anchors against candidate metadata, rejecting generic
+  or unrelated matches rather than guessing.
+- Processes selected images and produces editorial metadata.
+- Publishes supported Gutenberg media blocks through the native WordPress path,
+  retaining managed-media information for verification and guarded repair.
 
-- **Free APIs**: Unsplash and similar open providers
-- **Licensed stock**: DepositPhotos and compatible APIs
-- **Personal library**: Mac Photos via indexed visual memory
-- **Local files**: Any directory of JPGs, PNGs, or WebPs on disk
+Pictova **does not generate images**. It does not require Meridyen, Atlas,
+Pictovap, or another product to run.
 
-It delivers to any combination of destinations:
+## The operator workflow
 
-- **WordPress**: native Gutenberg blocks, media library upload, featured image
-- **Local output**: processed files with generated metadata
-- **Structured JSON**: for custom downstream pipelines
-
-## What Problem It Solves
-
-Adding images to content is slow, repetitive, and cognitively expensive. A human editor must:
-
-1. Read the post to understand its context
-2. Search multiple sources for relevant images
-3. Download, resize, and rename files
-4. Upload to WordPress
-5. Write alt text and captions
-6. Place images at appropriate positions
-7. Repeat for every post
-
-Pictova automates all seven steps. It reads the post context, derives a semantic query, scores candidates from every configured source, selects the best matches, processes them to spec, generates metadata, and inserts native WordPress blocks.
-
-A post that takes 20 minutes of manual work takes under 60 seconds with Pictova.
-
-## What It Is Not
-
-Pictova does not generate images. It selects, processes, and places images that already exist — in your library, on your disk, or via licensed providers.
-
-It does not replace editorial judgment for hero image selection or brand-defining visuals. It automates the volume work so editors can focus on the decisions that matter.
-
-## Where It Lives
-
-Pictova was born as the visual layer of **Meridyen**, the content platform behind [yoldaolmak.com](https://yoldaolmak.com). It is designed to operate as a standalone application that any content publisher can adopt — from solo travel bloggers to enterprise media teams.
-
-See [Brand & Naming Doctrine](../architecture/naming.md) for the full Meridyen ecosystem map.
-
-## Two Ways to Run It
-
-**CLI** — for single posts and operator workflows:
-```bash
-pictova attach --site yoldaolmak --post 265713 --count 4 --people-first
+```text
+review → plan → process → attach
 ```
 
-**HTTP** — for automation, batch pipelines, and integrations:
-```bash
-pictova serve --host 127.0.0.1 --port 8040
-curl -X POST http://127.0.0.1:8040/jobs/attach \
-  -H 'Content-Type: application/json' \
-  -d '{"site":"yoldaolmak","post_id":265713,"count":4,"people_first":true}'
-```
+`review` reads a post. `plan` inspects candidates without licensing/downloading
+them. `process` prepares assets without writing to WordPress. Only `attach`
+uploads and places media. The managed-media `guard` has separate explicit
+repair and reset operations.
 
-See [CLI Reference](../reference/cli.md) and [HTTP API Reference](../reference/http-api.md) for full details.
+The requested image count is an upper bound, not a target to fill with
+generic pictures. A named place without a supported match remains empty.
+
+## Limits
+
+A local filename, provider tag, or generated search query alone is not proof of
+a place's identity. Common Turkish/English terms and spelling variants can be
+matched, but different proper names (for example, local-language exonyms) need
+a grounded equivalent before Pictova can treat them as identical.
+
+The native `auto` path is the supported heading-aware selection route. Explicit
+`local`, `vil`, `unsplash`, and compatibility/legacy paths have different
+evidence boundaries: choosing a source directly does not establish that an
+asset depicts a particular section. Review the plan and source metadata before
+using such paths for publication.
+
+See [Semantic Selection](semantic-selection.md), [The Pipeline](pipeline.md),
+and the [CLI Reference](../reference/cli.md).

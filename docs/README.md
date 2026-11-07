@@ -2,7 +2,7 @@
 
 **Pictova** — Visual Intelligence for Content
 
-Pictova finds, selects, processes, and places images into WordPress posts from any source: free photo APIs, licensed stock providers, Mac Photos, or local files. It runs as a CLI, an HTTP service, or a Python library.
+Pictova is an independent image-selection and WordPress placement application. It searches configured local and external sources, but only a candidate supporting its intended heading should be published. The native CLI is the primary surface; a token-authenticated local HTTP service is optional.
 
 ---
 
@@ -20,7 +20,7 @@ Understand the system before running it.
 ### Guides
 Task-oriented walkthroughs.
 
-- [Quickstart](guides/quickstart.md) — First image attached in 5 minutes
+- [Quickstart](guides/quickstart.md) — Review, plan and safely publish
 - [Installation](guides/installation.md) — Full setup with all components
 - [Mac Photos Setup](guides/mac-photos-setup.md) — Index and enrich your Photos library
 - [WordPress Setup](guides/wordpress-setup.md) — Credentials and site profiles
@@ -38,12 +38,12 @@ Complete specification for all interfaces.
 How it is built and why.
 
 - [System Overview](architecture/overview.md) — Layers, modules, data flow
-- [Native vs Legacy Engine](architecture/native-vs-legacy.md) — Two engine paths explained
+- [Native vs Legacy Engine](architecture/native-vs-legacy.md) — Supported native path and compatibility limits
 - [Engine Modules](architecture/engine-modules.md) — selector, processor, publisher, quality, metadata
-- [Brand & Naming Doctrine](architecture/naming.md) — Why Pictova, Meridyen ecosystem, sub-layer names
+- [Brand & Naming](architecture/naming.md) — Independent product and package identity
 
 ### Ops
-Running Pictova in production.
+Operating the local application and controlled WordPress publishing.
 
 - [Runbook](ops/runbook.md) — Day-to-day operation commands
 - [Indexing](ops/indexing.md) — Visual memory index maintenance

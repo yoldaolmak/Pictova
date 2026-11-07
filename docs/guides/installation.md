@@ -12,8 +12,8 @@ Full setup guide covering all Pictova components.
 ## Step 1: Clone the Repository
 
 ```bash
-git clone <repo-url> pictova
-cd pictova
+git clone https://github.com/yoldaolmak/Pictova.git
+cd Pictova
 ```
 
 ## Step 2: Create a Virtual Environment
@@ -51,7 +51,7 @@ cp .env.example .env
 WP_USER=your-wordpress-username
 WP_APP_PASSWORD=your-app-password
 
-# At least one image source
+# One intended image source, if using Unsplash
 UNSPLASH_ACCESS_KEY=your-unsplash-key
 ```
 
@@ -65,9 +65,9 @@ See [Configuration Reference](../reference/configuration.md) for all available v
 pictova health
 ```
 
-```json
-{"status": "ok", "service": "pictova"}
-```
+The health JSON reports module readiness, indexed photo counts, vision sources,
+and configured WordPress sites. Overall `status: ok` is not a guarantee that
+a particular WordPress post or image provider is accessible.
 
 ```bash
 python3.10 -m pytest -q
@@ -84,7 +84,7 @@ See [Mac Photos Setup](mac-photos-setup.md) for the full guide.
 Once indexed, add to `.env`:
 
 ```bash
-YO_VISUAL_MEMORY_DB=/Users/yoldaolmak/Projects/Pictova/data/visual_memory.db
+YO_VISUAL_MEMORY_DB=/absolute/path/to/visual_memory.db
 ```
 
 ## Optional: HTTP Service
@@ -92,6 +92,7 @@ YO_VISUAL_MEMORY_DB=/Users/yoldaolmak/Projects/Pictova/data/visual_memory.db
 To run Pictova as an HTTP service:
 
 ```bash
+export PICTOVA_HTTP_TOKEN="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
 pictova serve --host 127.0.0.1 --port 8040
 ```
 

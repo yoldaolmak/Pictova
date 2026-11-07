@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### Fixed
+- Require section-specific image anchors rather than accepting the article's broad destination for a different H2/H3.
+- Preserve the original named heading constraint when an optional model broadens an unsuccessful search.
+- Reject automatic heading placement for an explicit query when no relevant heading matches.
+- Normalize Turkish geographic spelling/plural variants and a bounded set of common bilingual editorial terms without assigning unsupported place aliases.
+- Align the operator, installation, architectural and semantic selection documentation with the current native and legacy boundaries.
 - Consolidated Photos indexing and Vision scanning under bounded `scripts/` entry points.
 - Removed unsupported direct WordPress and DepositPhotos operations outside the native Pictova pipeline.
 - Added strict local-runtime ignores for Photos indexes, provider caches, manifests, and agent artifacts.

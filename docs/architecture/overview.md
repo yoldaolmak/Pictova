@@ -1,98 +1,55 @@
-# System Overview
+# Pictova Architecture
 
-## Layers
+Pictova is a standalone Python application. The supported path keeps CLI/HTTP
+parsing, editorial selection, media processing and WordPress writes at explicit
+boundaries. It does not depend on another editorial or visual-operations product.
 
-Pictova is structured in three layers. Each layer has a single responsibility and a clean boundary.
+## Runtime structure
 
-```
-┌─────────────────────────────────────┐
-│           App Surface               │
-│   CLI · HTTP API · Python API       │
-│   src/pictova/app/                  │
-├─────────────────────────────────────┤
-│           Engine                    │
-│  selector · processor · publisher   │
-│  metadata · quality · gallery       │
-│   src/pictova/engine/               │
-├─────────────────────────────────────┤
-│        Providers & Profiles         │
-│  WordPress · Unsplash · Deposit     │
-│  Site-specific rules                │
-│  src/pictova/providers/             │
-│  src/pictova/profiles/              │
-└─────────────────────────────────────┘
-```
+| Area | Location | Owns |
+| --- | --- | --- |
+| App | `src/pictova/app/` | CLI, local authenticated HTTP, request/result contracts |
+| Engine | `src/pictova/engine/` | Heading selection, source orchestration, quality, metadata, placement, attach |
+| Providers | `src/pictova/providers/` | External search, downloads and WordPress reads |
+| WordPress adapter | `src/services/wordpress.py` | Media upload, Gutenberg changes, managed-media verification |
+| Profiles | `src/pictova/profiles/` | Site configuration; no universal destination truth |
+| Indexing | `scripts/` | Local Photos and Visual Memory maintenance |
 
-## App Surface (`src/pictova/app/`)
+The selector performs source reads/searches through providers and the local
+index; the engine is **not** a pure in-memory layer. Avoid concealing paid
+downloads or WordPress writes behind functions described as previews.
 
-The entry points. Nothing here contains business logic.
+## Selection and publishing boundaries
 
-| Module | Purpose |
-|--------|---------|
-| `cli.py` | `pictova` command — parses args, calls engine |
-| `api.py` | Python-callable wrappers: `attach_images()`, `review_post()`, `plan_attach()` |
-| `server.py` | HTTP server — routes requests to `api.py` |
-| `jobs.py` | Async job orchestration — wraps `api.py` for background execution |
-| `state.py` | In-memory job registry |
-| `health.py` | Health check logic |
-
-## Engine (`src/pictova/engine/`)
-
-Business logic. No I/O here except through injected providers.
-
-| Module | Responsibility |
-|--------|---------------|
-| `selector.py` | Query sources, enforce exact anchors, and build ranked candidates |
-| `processor.py` | Download, resize, convert, watermark-strip |
-| `quality.py` | Score-based gate: reject blurry, over/underexposed, wrong aspect |
-| `metadata.py` | Generate evidence-based alt text and concise editorial metadata |
-| `publisher.py` | Prepare validated media for WordPress publishing |
-| `gallery.py` | Native gallery block construction |
-| `attach.py` | Pipeline orchestration: ties all engine modules together |
-
-## Providers (`src/pictova/providers/`)
-
-External I/O adapters. One per source or destination.
-
-| Module | Interface |
-|--------|-----------|
-| `wordpress.py` | Read post context and resolve the supported site |
-
-Native providers include DepositPhotos and Wikimedia; free-source fallback is
-subject to the same exact-match gate as local candidates.
-
-## Profiles (`src/pictova/profiles/`)
-
-Per-site rules. No logic — only configuration values consumed by the engine and providers.
-
-| Module | Site |
-|--------|------|
-| `yoldaolmak.py` | yoldaolmak.com (active) |
-
-## Data Flow
-
-```
-User input (post_id + options)
-        │
-        ▼
-    cli.py / api.py / server.py
-        │
-        ▼
-    attach.py  ←────── profiles/
-        │
-        ├──▶ selector.py  ←─── providers/* (Unsplash, Visual Memory)
-        │
-        ├──▶ processor.py
-        │
-        ├──▶ quality.py
-        │
-        ├──▶ metadata.py  ←─── vision AI (optional)
-        │
-        └──▶ publisher.py ─────▶ providers/wordpress.py ──▶ WordPress
+```text
+WordPress article + H2/H3 headings
+  → section subjects and exact-match requirements
+  → local index / configured image providers
+  → candidate evidence checks and selection
+  → image processing + metadata + quality validation
+  → native attach (explicit write)
+  → WordPress media and Gutenberg blocks
+  → managed-media verification
 ```
 
-## Legacy Core
+A broad post location is not an acceptable substitute for a named heading.
+A generic model-generated search query is not approval. If the original named
+subject cannot be supported, that slot remains empty.
 
-`src/core/` and `src/main.py` contain the original orchestration code. The native engine (`src/pictova/engine/`) wraps or replaces these incrementally. Both paths produce the same structured output contract.
+`review`, `plan`, and `process` do not alter WordPress content. `attach`
+is the ordinary publishing path; mutating `guard` modes remain explicit.
 
-See [Native vs Legacy Engine](native-vs-legacy.md).
+## Legacy boundary
+
+`src/main.py` and `src/core/` contain compatibility code. The CLI still
+accepts `--engine legacy`, which calls the old orchestrator and lacks the
+native path's complete checks. It is not the target for new product behavior.
+See [Native and Legacy](native-vs-legacy.md).
+
+## Verification limits
+
+Offline tests cover selection, quality, HTTP and WordPress adapter contracts.
+They do not independently prove whether an arbitrary photograph actually
+depicts the section's place, and they do not constitute a live site deployment.
+See [Semantic Selection](../concepts/semantic-selection.md) and
+[Operations](../ops/runbook.md).

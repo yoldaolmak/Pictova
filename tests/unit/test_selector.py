@@ -558,7 +558,6 @@ def test_wikimedia_requires_location_token_in_file_title():
     assert selected["files"] == ["/tmp/dupnisa.jpg"]
 
 
-@pytest.mark.xfail(reason="Adım 2 (semantik katman) bekliyor: destinasyon/çapraz-dil sözlükleri kaldırıldı, yerine öğrenilmiş eşleşme gelecek", strict=True)
 def test_deposit_title_matching_accepts_only_specific_entity_tokens():
     from src.pictova.engine.selector import _deposit_result_tokens, _matches_anchor_tokens
 
@@ -572,7 +571,6 @@ def test_deposit_title_matching_accepts_only_specific_entity_tokens():
     )
 
 
-@pytest.mark.xfail(reason="Adım 2 (semantik katman) bekliyor: destinasyon/çapraz-dil sözlükleri kaldırıldı, yerine öğrenilmiş eşleşme gelecek", strict=True)
 def test_deposit_title_matching_supports_cross_language_topic_tokens():
     from src.pictova.engine.selector import _deposit_result_tokens, _matches_anchor_tokens
 
@@ -586,7 +584,6 @@ def test_deposit_title_matching_supports_cross_language_topic_tokens():
     )
 
 
-@pytest.mark.xfail(reason="Adım 2 (semantik katman) bekliyor: destinasyon/çapraz-dil sözlükleri kaldırıldı, yerine öğrenilmiş eşleşme gelecek", strict=True)
 def test_deposit_search_requires_two_meaningful_query_title_matches():
     from src.pictova.engine.selector import _deposit_search_download
 
@@ -1117,7 +1114,6 @@ def test_compute_assigned_headings_prefers_earliest_main_headings():
     ]
 
 
-@pytest.mark.xfail(reason="Adım 2 (semantik katman) bekliyor: destinasyon/çapraz-dil sözlükleri kaldırıldı, yerine öğrenilmiş eşleşme gelecek", strict=True)
 def test_compute_assigned_headings_filters_unrelated_headings_for_explicit_query():
     from src.pictova.engine.attach import _compute_assigned_headings
 
@@ -1231,3 +1227,145 @@ def test_gallery_policy_follows_published_grouping():
     assert result["a"]["gallery"] is True
     assert result["b"]["gallery"] is True
     assert result["c"]["gallery"] is False
+
+
+def test_heading_exact_match_rejects_broad_post_location_even_when_metadata_agrees(monkeypatch):
+    """A parent destination cannot authorize an unrelated child's image."""
+    from src.pictova.engine import selector
+
+    rows = {
+        "/broad.jpg": {
+            "title": "Cappadocia balloon landscape",
+            "location": "Cappadocia",
+            "summary": "Cappadocia aerial panorama",
+        },
+        "/exact.jpg": {
+            "title": "Uchisar Castle in Cappadocia",
+            "location": "Uçhisar",
+            "summary": "Uçhisar Castle",
+        },
+        "/wrong.jpg": {
+            "title": "Ortahisar Castle Cappadocia",
+            "location": "Ortahisar",
+        },
+    }
+    monkeypatch.setattr(selector, "_candidate_metadata_row", lambda image: rows[image])
+    post_context = {"title": "Kapadokya Gezilecek Yerler", "slug": "kapadokya"}
+    for candidate in ("/broad.jpg", "/wrong.jpg"):
+        assert not selector._candidate_matches_heading(
+            candidate, "Uçhisar Kalesi", post_context=post_context,
+        )
+    assert selector._candidate_matches_heading(
+        "/exact.jpg", "Uçhisar Kalesi", post_context=post_context,
+    )
+
+
+def test_heading_selection_skips_generic_then_selects_specific_local_without_paid_calls(monkeypatch):
+    from src.pictova.engine import selector
+
+    rows = {
+        "/broad.jpg": {"title": "Cappadocia balloons", "location": "Cappadocia"},
+        "/exact.jpg": {"title": "Uchisar Castle", "location": "Uçhisar"},
+    }
+    monkeypatch.setattr(selector, "search_semantic_assets", lambda **_: list(rows))
+    monkeypatch.setattr(selector, "_candidate_metadata_row", rows.get)
+    monkeypatch.setattr(
+        selector, "_deposit_search_download",
+        lambda **_: pytest.fail("a confirmed local match must not trigger stock purchases"),
+    )
+    files, assignments = selector._heading_specific_selection(
+        post_context={
+            "title": "Kapadokya",
+            "available_headings": [{"text": "Uçhisar Kalesi", "level": 2}],
+        },
+        content_filter=None, limit=1, allow_external=True, plan_only=False,
+    )
+    assert files == ["/exact.jpg"]
+    assert assignments["/exact.jpg"]["text"] == "Uçhisar Kalesi"
+
+
+def test_named_route_heading_matches_destination_not_departure(monkeypatch):
+    from src.pictova.engine import selector
+
+    rows = {
+        "/bodrum.jpg": {"title": "Bodrum harbour", "location": "Bodrum"},
+        "/kos.jpg": {"title": "Kos Island harbour", "location": "Kos"},
+    }
+    monkeypatch.setattr(selector, "search_semantic_assets", lambda **_: list(rows))
+    monkeypatch.setattr(selector, "_candidate_metadata_row", rows.get)
+    files, assignments = selector._heading_specific_selection(
+        post_context={
+            "title": "Yunan Adaları",
+            "available_headings": [{"text": "2. Bodrum’dan Kos’a Kaçış", "level": 2}],
+        },
+        content_filter=None, limit=1, allow_external=False,
+    )
+    assert files == ["/kos.jpg"]
+    assert assignments["/kos.jpg"]["required_heading_tokens"] == ["kos"]
+
+
+def test_expanded_search_retains_original_named_subject_not_model_keywords(monkeypatch):
+    from src.pictova.engine import selector
+
+    calls = []
+    monkeypatch.setattr(selector, "search_semantic_assets", lambda **_: [])
+    monkeypatch.setattr(
+        selector, "expand_heading_query",
+        lambda *_args: ["beautiful mountains landscape", "scenic green valley"],
+    )
+
+    def provider_search(query, count, plan_only=False, *, strict_tokens=None):
+        calls.append((query, strict_tokens))
+        return []
+
+    monkeypatch.setattr(selector, "_deposit_search_download", provider_search)
+    files, _ = selector._heading_specific_selection(
+        post_context={
+            "title": "Kapadokya",
+            "available_headings": [{"text": "1. Uçhisar Kalesi", "level": 3}],
+        },
+        content_filter=None, limit=1, allow_external=True, plan_only=True,
+    )
+    assert files == []
+    assert calls[0][1] == {"uchisar"}
+    assert all(tokens == {"uchisar"} for _, tokens in calls)
+    assert len(calls) == 3
+
+
+def test_multiple_topic_anchors_require_two_independent_terms():
+    from src.pictova.engine.selector import _matches_anchor_tokens
+
+    assert _matches_anchor_tokens(
+        {"damaged", "suitcase", "airport"}, {"kirilan", "valiz", "ucakta"},
+    )
+    assert not _matches_anchor_tokens(
+        {"suitcase", "sunset", "landscape"}, {"kirilan", "valiz", "ucakta"},
+    )
+    assert _matches_anchor_tokens({"topkapi"}, {"topkapi"})
+    assert not _matches_anchor_tokens({"turkey"}, {"aladaglar", "turkey"})
+
+
+def test_explicit_image_query_without_any_matching_heading_does_not_invent_placement():
+    from src.pictova.engine.attach import _compute_assigned_headings
+
+    result = _compute_assigned_headings(
+        ["/local/asset.jpg"],
+        {"location_query": "passport border control"},
+        {
+            "available_headings": [
+                {"text": "Dönüş Bileti", "level": 2},
+                {"text": "Otel Rezervasyonu", "level": 2},
+            ],
+        },
+    )
+    assert result == {}
+
+
+def test_english_named_place_stays_distinct_from_neighboring_location():
+    from src.pictova.engine.selector import _matching_anchor_count, _matches_anchor_tokens
+
+    # Different Turkish spelling / morphology of *the same* name is safe.
+    assert _matches_anchor_tokens({"aladag", "national"}, {"aladaglar"})
+    # A nearby major city or country is never a substitute for the named place.
+    assert not _matches_anchor_tokens({"kayseri", "turkey"}, {"aladaglar", "turkey"})
+    assert _matching_anchor_count({"kayseri", "turkey"}, {"aladaglar"}) == 0

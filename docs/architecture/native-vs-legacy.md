@@ -1,20 +1,21 @@
 # Native and Legacy Paths
 
-The supported production path is the native engine:
+The **native** engine is the supported publishing route:
 
 ```bash
-pictova attach --site yoldaolmak --post 265713 --engine native
+pictova plan --site yoldaolmak --post 265713 --engine native --source auto
+pictova attach --site yoldaolmak --post 265713 --engine native --source auto
 ```
 
-It owns strict source selection, metadata policy, Gutenberg placement, media
-verification, and the managed-media guard. The CLI defaults to `native`.
+It coordinates heading-specific selection, media processing, metadata, quality
+validation, Gutenberg insertion and managed-media checks.
 
-`src/main.py` and selected `src/core/` modules remain only as compatibility
-dependencies while their callers are retired. They are not a second publishing
-surface and new functionality must not be added there.
+The CLI currently also accepts `--engine legacy`. That path calls
+`YOOrchestrator` from `src/main.py` and retains older behavior for
+compatibility. It does not have equivalent fail-closed semantic and publishing
+guarantees. Do not describe it as a second production-ready path or build new
+features on it.
 
-## Migration rule
-
-When a legacy helper is still required, wrap or call it from the native engine
-behind a tested contract. Do not recreate legacy behavior in a one-off script,
-and do not bypass selection or publishing checks for a one-off post.
+When migration still requires a legacy helper, invoke it through the native
+engine behind a regression-tested interface. Do not create an alternate direct
+WordPress write script or bypass selection to complete a specific post.

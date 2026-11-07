@@ -1,82 +1,62 @@
 # Quickstart
 
-Get your first image attached to a WordPress post in 5 minutes.
+Inspect an image plan before making a WordPress change. Pictova will return
+fewer images than requested when it cannot match the article's sections.
 
-## Prerequisites
+## Requirements
 
-- Python 3.10+
-- A WordPress site with Application Passwords enabled
-- An Unsplash developer account (free tier works)
+Python 3.10+, a configured WordPress site and at least one intended image
+source. A Mac Photos index and DepositPhotos credentials are optional.
 
-## 1. Clone and install
+## Install
 
 ```bash
-git clone <repo-url> pictova
-cd pictova
+git clone https://github.com/yoldaolmak/Pictova.git
+cd Pictova
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 pip install -e .
-```
-
-## 2. Configure
-
-```bash
 cp .env.example .env
 ```
 
-Open `.env` and fill in the minimum required fields:
+Fill in only the WordPress profile and source settings you will actually use.
+Never commit `.env`. For the supported site variables, see
+[WordPress Setup](wordpress-setup.md) and
+[Configuration](../reference/configuration.md).
 
-```bash
-# WordPress
-WP_USER=your-wp-username
-WP_APP_PASSWORD=your-app-password    # Settings → Application Passwords
-
-# Image source (at least one)
-UNSPLASH_ACCESS_KEY=your-unsplash-key
-```
-
-## 3. Verify
+## Check the environment
 
 ```bash
 pictova health
 ```
 
-Expected output:
-```json
-{"status": "ok", "service": "pictova"}
-```
+The JSON contains `status`, module readiness, `photo_index`, `vision_chain`
+and `wordpress_sites`. An overall `ok` does not certify that a specific
+post is readable or that a source will return exact images.
 
-## 4. Review a post
-
-Pick any post ID from your WordPress site.
+## Review and plan
 
 ```bash
 pictova review --site yoldaolmak --post 265713
+pictova plan --site yoldaolmak --post 265713 --count 4 --source auto
 ```
 
-This reads the post and shows what context Pictova derived. No images are touched.
+Check the heading assignments, selected candidates and warnings. An empty
+list can mean no candidate supported the named subject, not a broken run.
 
-## 5. Plan
+## Process and publish
 
 ```bash
-pictova plan --site yoldaolmak --post 265713 --count 4
+# Download/prepare locally; does not change WordPress.
+pictova process --site yoldaolmak --post 265713 --count 4 --source auto
+
+# Writes to WordPress. Run only after reviewing the plan.
+pictova attach --site yoldaolmak --post 265713 --count 4 --source auto --engine native
 ```
 
-Shows the candidate images that would be selected. Still no changes to WordPress.
+A request for four images may select fewer or none. Do not bypass exact
+matching or the quality gate to reach a count.
 
-## 6. Attach
-
-```bash
-pictova attach --site yoldaolmak --post 265713 --count 4
-```
-
-Pictova selects, downloads, processes, uploads, and places 4 images into the post as Gutenberg image blocks.
-
----
-
-## Next Steps
-
-- [Installation](installation.md) — full setup including Mac Photos and local sources
-- [CLI Reference](../reference/cli.md) — all flags and options
-- [Site Profiles](../reference/profiles.md) — customizing behavior per site
+For authenticated local automation, see the
+[HTTP API Reference](../reference/http-api.md).
