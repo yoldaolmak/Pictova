@@ -112,6 +112,7 @@ tests/                 regression and contract tests
 - [Native engine architecture](docs/architecture/overview.md)
 - [Operational runbook](docs/ops/runbook.md)
 - [Contributing](CONTRIBUTING.md)
+- [Security and trusted execution boundaries](SECURITY.md)
 
 ## Verification
 
