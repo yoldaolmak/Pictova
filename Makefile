@@ -34,5 +34,5 @@ run:
 	pictova attach --post "$(POST_ID)" --site "$(or $(SITE),auto)" --source auto --engine native
 
 clean:
-	find . -type d -name __pycache__ -prune -exec rm -rf {} +
+	find src tests scripts -type d -name __pycache__ -prune -exec rm -rf {} +
 	rm -rf .pytest_cache htmlcov build dist
