@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+- Pictova Studio: optional single-screen, loopback-only browser review with
+  configured WordPress URL input, candidate previews, exact H2/H3 placement,
+  reject/approve selection and explicit paid-license consent.
+- Bounded server-side single-use approval plans with source/post change checks;
+  native engine reuses approved source IDs rather than silently replacing them.
+- Separate Studio HTTP and CLI test coverage; existing CLI commands preserved.
+
 ### Fixed
 - Remove non-blocking, tokenless external coverage uploads that logged failures despite green CI; keep coverage reporting in GitHub Actions logs.
 - Validate size, shape and completion status of OpenAI-compatible local vision responses; exclude raw model text and HTTP error bodies from operator-visible failures.
