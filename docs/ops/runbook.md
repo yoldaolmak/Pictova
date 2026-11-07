@@ -1,79 +1,73 @@
-# Runbook
+# Pictova Operator Runbook
 
-Day-to-day operations for Pictova.
+Use `review → plan → process → attach` for an individual WordPress post.
+Only `attach` publishes. `guard` mutation modes need a separate deliberate
+operator decision.
 
-## Attach Images to a Post
-
-```bash
-# Single post, default settings
-pictova attach --site yoldaolmak --post 265713
-
-# With count and people preference
-pictova attach --site yoldaolmak --post 265713 --count 4 --people-first
-
-# Preview only — no WordPress changes
-pictova plan --site yoldaolmak --post 265713 --count 4 --people-first
-```
-
-## Check System Health
+## Diagnose a post
 
 ```bash
 pictova health
+pictova review --site yoldaolmak --post 265713
+pictova plan --site yoldaolmak --post 265713 --count 4 --source auto
 ```
+
+Verify the selected site, the actual H2/H3 subjects and every candidate's
+heading assignment. Read warnings: no exact candidate is a valid outcome.
+
+## Prepare before WordPress writes
 
 ```bash
-# With visual memory check
-python3 - <<'PY'
-from src.main import search_semantic_assets
-results = search_semantic_assets('test', count=3)
-print(f"Visual memory: {len(results)} results found")
-PY
+pictova process --site yoldaolmak --post 265713 --count 4 --source auto
 ```
 
-## Run Tests
+This can download and transform local files, but must not upload them to the
+post. Inspect quality and metadata results.
+
+## Publish
+
+```bash
+pictova attach --site yoldaolmak --post 265713 --count 4 --source auto --engine native
+```
+
+A short selection is not permission to insert generic assets. Keep existing
+unmanaged image blocks intact. To inspect managed media without modifying a
+post:
+
+```bash
+pictova guard --site yoldaolmak --post 265713
+```
+
+`guard --repair`, `--reposition`, `--adopt`, and `--reset` are separate
+write operations; verify ownership and back up the post before using them.
+
+## Verify the local installation
 
 ```bash
 python3.10 -m pytest -q
 ```
 
-Expected: all passed, 0 failures.
+Automated tests use isolated fixtures and mocked providers; a successful
+test run does not prove live WordPress publication or visual accuracy.
 
-## Start HTTP Server
-
-```bash
-pictova serve --host 127.0.0.1 --port 8040 &
-
-# Verify
-curl -s http://127.0.0.1:8040/health
-```
-
-## Submit Async Job
+## Optional local HTTP server
 
 ```bash
-curl -s -X POST http://127.0.0.1:8040/jobs/attach \
-  -H 'Content-Type: application/json' \
-  -d '{"site":"yoldaolmak","post_id":265713,"count":4,"people_first":true}'
+export PICTOVA_HTTP_TOKEN="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+pictova serve --host 127.0.0.1 --port 8040
 ```
 
-Returns `{"job_id":"abc123","status":"pending"}`.
-
-## Poll Job Status
+Every HTTP route requires a Bearer token:
 
 ```bash
-curl -s http://127.0.0.1:8040/jobs/abc123
+curl -sS -H "Authorization: Bearer $PICTOVA_HTTP_TOKEN" \
+  http://127.0.0.1:8040/health
 ```
 
-Poll until `"status"` is `"completed"` or `"failed"`.
+The service is not suitable for public exposure; see the
+[HTTP API Reference](../reference/http-api.md).
 
-## List All Jobs
-
-```bash
-curl -s http://127.0.0.1:8040/jobs
-```
-
-## Re-index Visual Memory
-
-Run after importing new photos:
+## Index local Photos
 
 ```bash
 python3 scripts/index_turkey_photos.py
@@ -81,29 +75,19 @@ python3 scripts/rebuild_fts.py
 python3 scripts/build_destination_index.py
 ```
 
-See [Indexing](indexing.md) for full details.
+These commands update local index state, not WordPress. Follow the
+[Indexing Guide](indexing.md) before running them on a real Photos library.
 
-## Common Issues
+## Diagnose a missing image
 
-**`attach` fails with "No candidates found"**
-1. Run `pictova plan` to see if any candidates are returned
-2. Check `YO_VISUAL_MEMORY_DB` is set and points to a populated database
-3. Check `UNSPLASH_ACCESS_KEY` is valid
-4. Check the post has readable content (not empty)
+- No candidate for a specific heading: inspect the heading name and source
+  title; the correct action may be to leave it empty.
+- A provider error: verify configuration and connectivity; do not rerun a
+  licensed download blindly or weaken matching.
+- Local images rejected during `process`: inspect the quality report and
+  original file, without bypassing rejection.
+- WordPress access denied: verify the selected site profile and its
+  application password in the local environment, never in logs.
 
-**`attach` fails with auth error**
-1. Verify the selected site's username and application-password variables in `.env`
-2. Verify the Application Password is still active in WordPress admin
-3. Verify the user has Editor permissions
-
-**`plan` returns candidates but `process` rejects all**
-- Quality gate is blocking — images are blurry or wrong aspect ratio
-- Inspect the planned heading and candidate evidence before changing sources
-- Do not lower the quality or semantic gate to force an attachment
-
-## Financial Controls & Limits
-
-`fast_scan.py` defaults to 1,350 completed scans per calendar day. Set
-`PICTOVA_VISION_DAILY_LIMIT` or pass `--daily-limit` for a different explicit
-limit. A value of zero disables the guard and should only be used for an
-observed run.
+Optional `fast_scan.py` vision enrichment is subject to
+`PICTOVA_VISION_DAILY_LIMIT`; review its budget before a real scan.
