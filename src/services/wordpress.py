@@ -1232,17 +1232,10 @@ class YOWordPressUploader:
                 raise ValueError("Managed media shares a Gutenberg block with untracked images")
 
             if re.match(r"<!-- wp:gallery\b", block, flags=re.I):
-                children = re.findall(
-                    r"<!-- wp:image\b.*?<!-- /wp:image -->",
-                    block, flags=re.S | re.I,
-                )
-                if not children or any(
-                    len(block_media_ids(child)) != 1 for child in children
-                ):
+                children = re.findall(r"<!-- wp:image\b.*?<!-- /wp:image -->", block, flags=re.S | re.I)
+                if not children or any(len(block_media_ids(child)) != 1 for child in children):
                     raise ValueError("Gallery contains images without unambiguous managed identity")
-                remainder = re.sub(
-                    r"<!-- wp:image\b.*?<!-- /wp:image -->", "", block, flags=re.S | re.I,
-                )
+                remainder = re.sub(r"<!-- wp:image\b.*?<!-- /wp:image -->", "", block, flags=re.S | re.I)
                 if re.search(r"<img\b|<figcaption\b|<!-- wp:(?!gallery\b)", remainder, flags=re.I):
                     raise ValueError("Gallery contains editorial content outside managed image blocks")
 
