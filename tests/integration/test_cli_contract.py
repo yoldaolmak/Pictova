@@ -297,7 +297,7 @@ def test_run_attach_job_native_engine_uses_native_pipeline(monkeypatch):
         lambda **kwargs: seen.update(kwargs) or {
             "uploaded": [{"media_id": 91}, {"media_id": 92}],
             "failed": [],
-            "content_update": {"inserted": 2},
+            "content_update": {"success": True, "updated": True, "inserted": 2},
         },
     )
 
@@ -482,7 +482,7 @@ def test_run_attach_job_publishes_partial_exact_selection(monkeypatch):
         lambda **kwargs: {
             "uploaded": [{"media_id": 1}, {"media_id": 2}],
             "failed": [],
-            "content_update": {"inserted": 2},
+            "content_update": {"success": True, "updated": True, "inserted": 2},
         },
     )
 
