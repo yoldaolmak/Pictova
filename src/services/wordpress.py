@@ -711,7 +711,9 @@ class YOWordPressUploader:
         # ownership-checked media repair, not to the default publish path.
         removed_broken = repositioned
         has_unanchored_items = any(not str(item.get("heading", "") or "").strip() for item in media_items)
-        if has_unanchored_items:
+        # Do not normalize or rewrite the whole post unless an existing
+        # Pictova auto-media region actually needs replacement.
+        if has_unanchored_items and AUTO_MEDIA_START in current_content:
             current_content = _remove_auto_media_region(current_content)
 
         from collections import defaultdict
