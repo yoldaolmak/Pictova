@@ -1,60 +1,69 @@
-# Monitoring
+# Monitoring and Diagnostics
 
-## Health Check
+Pictova is an operator-run application, not a managed production monitoring
+service. Its structured command results, local index and bounded HTTP jobs
+are the observable surfaces.
+
+## Check local health
 
 ```bash
 pictova health
 ```
 
+The health result reports Python/module availability, the local photo index,
+configured vision sources and WordPress site readiness. It does not guarantee
+that a particular heading has a matching image.
+
+## Inspect source selection
+
 ```bash
-# Via HTTP
-curl -s http://127.0.0.1:8040/health
+pictova review --site yoldaolmak --post 265713
+pictova plan --site yoldaolmak --post 265713 --source auto --count 4
 ```
 
-The result reports configuration, WordPress readiness, provider availability
-and local-index status. It does not publish or upload media.
+An empty exact-match list is a normal outcome when the subject cannot be
+established. Check `heading_assignments` and `warnings`; do not compensate
+for a missing named place with a generic image.
 
-If this fails: check that `pictova serve` is running and the port is correct.
-
-## Visual Memory Status
+The local index can be queried without writing to WordPress:
 
 ```bash
 python3 - <<'PY'
-from src.main import search_semantic_assets
-r = search_semantic_assets('Istanbul', count=3)
-print(f"Status: {'ok' if r else 'no results — check YO_VISUAL_MEMORY_DB'}")
+from src.pictova.engine.search import search_semantic_assets
+print(search_semantic_assets(location_query="Istanbul", count=3))
 PY
 ```
 
-## Test Suite
+Empty results can mean no index, no relevant indexed photos, or an unavailable
+path. There is no guarantee that every city must return a fixed count.
+
+## Verify code changes
 
 ```bash
 python3.10 -m pytest -q
 ```
 
-Run after any code change. All tests should pass. A failing test in CI means something in the engine contract changed.
+The test suite uses offline fixtures and mocked providers. Passing tests
+demonstrate code behavior under those inputs, not live publishing accuracy.
 
-## Job Queue Health (HTTP mode)
+## Optional HTTP health and jobs
 
-```bash
-curl -s http://127.0.0.1:8040/jobs | python3 -m json.tool
-```
-
-Check for jobs stuck in `running` state for more than 5 minutes — this indicates a processing hang.
-
-## What to Watch
-
-| Signal | Normal | Investigate if |
-|--------|--------|----------------|
-| `attach` result | `success` or intentional `no_candidates` | raw exception or partial upload |
-| Quality gate rejection rate | reported in receipt | unexpected generic fallback |
-| Visual memory query results | ≥ 3 for any Turkish city | 0 for major cities |
-| Test suite | All passed | Any failure |
-
-## Logs
-
-Pictova returns structured JSON on stdout. Capture a receipt with:
+Start the server with a private token, following the
+[HTTP API Reference](../reference/http-api.md).
 
 ```bash
-pictova attach --site yoldaolmak --post 265713 2>&1 | tee /tmp/pictova-run.log
+curl -sS -H "Authorization: Bearer $PICTOVA_HTTP_TOKEN" \
+  http://127.0.0.1:8040/health
+
+curl -sS -H "Authorization: Bearer $PICTOVA_HTTP_TOKEN" \
+  http://127.0.0.1:8040/jobs
 ```
+
+Job state is process-local and not a durable queue or service-level agreement.
+Do not expose the port or token to another network.
+
+## Logs and privacy
+
+CLI JSON may include private source paths and media details. Keep receipts in
+a restricted local directory, avoid copying credentials into command lines,
+and do not upload raw post content or Photos metadata to public issues.
