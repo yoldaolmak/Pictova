@@ -12,7 +12,7 @@
 
 [Selection](concepts/semantic-selection.md) · [Sources](concepts/sources.md) · [Pipeline](concepts/pipeline.md) · [Visual Memory](concepts/visual-memory.md) · [Overview](concepts/overview.md)
 
-[Architecture](architecture/overview.md) · [Engine modules](architecture/engine-modules.md) · [Native vs. legacy](architecture/native-vs-legacy.md) · [Product naming](architecture/naming.md)
+[Architecture](architecture/overview.md) · [Engine modules](architecture/engine-modules.md) · [Native vs. legacy](architecture/native-vs-legacy.md) · [Operation lifecycles](architecture/lifecycles.md) · [Product naming](architecture/naming.md)
 
 ## Operations
 
