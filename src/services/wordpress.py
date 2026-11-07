@@ -572,7 +572,10 @@ class YOWordPressUploader:
                     "gallery_media_ids": sorted(gallery_ids),
                 }
 
-        cleaned_content, removed_blocks = self._remove_managed_media_blocks(current_content, target_ids)
+        try:
+            cleaned_content, removed_blocks = self._remove_managed_media_blocks(current_content, target_ids)
+        except ValueError as error:
+            return {"success": False, "code": "mixed_media_ownership", "error": str(error)}
         if removed_blocks == 0:
             return {"success": False, "error": "Requested managed media blocks were not found"}
         remaining_items = [item for item in managed_items if int(item.get("media_id") or 0) not in target_ids]
