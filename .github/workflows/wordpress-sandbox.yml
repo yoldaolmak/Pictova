@@ -1,0 +1,76 @@
+name: Live WordPress Sandbox
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  live-wordpress:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mariadb:11
+        env:
+          MARIADB_DATABASE: pictova
+          MARIADB_USER: pictova
+          MARIADB_PASSWORD: pictova_local_test
+          MARIADB_ROOT_PASSWORD: pictova_local_root
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+      wordpress:
+        image: wordpress:php8.3-apache
+        env:
+          WORDPRESS_DB_HOST: mysql:3306
+          WORDPRESS_DB_USER: pictova
+          WORDPRESS_DB_PASSWORD: pictova_local_test
+          WORDPRESS_DB_NAME: pictova
+          WORDPRESS_CONFIG_EXTRA: "define('WP_ENVIRONMENT_TYPE', 'local');"
+        ports:
+          - 8080:80
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Pictova
+        run: python -m pip install -e ".[dev]"
+      - name: Prepare real WordPress sandbox and application password
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:8080/ >/dev/null; then break; fi
+            sleep 2
+          done
+          curl -fLsS https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar -o /tmp/wp-cli.phar
+          wp_container=$(docker ps --filter ancestor=wordpress:php8.3-apache -q | head -n 1)
+          test -n "$wp_container"
+          docker cp /tmp/wp-cli.phar "$wp_container:/tmp/wp-cli.phar"
+          docker exec "$wp_container" php /tmp/wp-cli.phar core install \
+            --allow-root --path=/var/www/html --url=http://127.0.0.1:8080 \
+            --title="Pictova isolated live test" --admin_user=pictova_ci \
+            --admin_password="pictova_ephemeral_admin_2026" --admin_email=pictova@example.test
+          docker exec "$wp_container" php /tmp/wp-cli.phar rewrite structure '/%postname%/' \
+            --hard --allow-root --path=/var/www/html
+          docker exec "$wp_container" php /tmp/wp-cli.phar rewrite flush \
+            --hard --allow-root --path=/var/www/html
+          # WP-CLI runs as root here; Apache uploads as www-data.
+          # Match a normal writable WordPress uploads installation.
+          docker exec "$wp_container" sh -c \
+            'mkdir -p /var/www/html/wp-content/uploads && chown -R www-data:www-data /var/www/html/wp-content/uploads'
+          secret=$(docker exec "$wp_container" php /tmp/wp-cli.phar user application-password create \
+            pictova_ci pictova_ci_test --porcelain --allow-root --path=/var/www/html)
+          echo "::add-mask::$secret"
+          echo "PICTOVA_SANDBOX_APP_PASSWORD=$secret" >> "$GITHUB_ENV"
+      - name: Real Commons photo to Gutenberg to rollback over live HTTP
+        env:
+          PICTOVA_SANDBOX_URL: http://127.0.0.1:8080
+          PICTOVA_SANDBOX_USER: pictova_ci
+        run: python -m pytest integration_checks/test_live_wordpress_photo.py -v -s

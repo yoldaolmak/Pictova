@@ -259,7 +259,16 @@ class YOWordPressUploader:
         except requests.exceptions.RequestException:
             return {"status": "unreachable"}
         if response.status_code == 200:
-            return {"status": "ready", "http_status": 200}
+            # HTTP 200 is not proof of an authenticated REST session: a
+            # misconfigured permalink or proxy can redirect /wp-json to
+            # the site's public HTML homepage. Refuse before any upload.
+            try:
+                identity = response.json()
+            except ValueError:
+                identity = None
+            if isinstance(identity, dict) and isinstance(identity.get("id"), int) and identity["id"] > 0:
+                return {"status": "ready", "http_status": 200}
+            return {"status": "unreachable", "http_status": 200, "reason": "invalid_rest_identity"}
         if response.status_code in {401, 403}:
             return {"status": "rejected", "http_status": response.status_code}
         return {"status": "unreachable", "http_status": response.status_code}
