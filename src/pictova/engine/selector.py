@@ -513,6 +513,12 @@ _NOISY_METADATA_TOKENS = {
 _GENERIC_SEMANTIC_ANCHORS = {
     "waterfall",
     "selale",
+    "lake",
+    "river",
+    "cave",
+    "forest",
+    "plateau",
+    "hill",
     "şelale",
     "beach",
     "plaj",
@@ -730,18 +736,45 @@ def _deposit_result_tokens(result: Dict[str, Any]) -> set[str]:
     return _specific_tokens(_token_set_from_text(result.get("title", "")))
 
 
-def _matching_anchor_count(candidate_tokens: set[str], anchor_tokens: set[str]) -> int:
-    """Count anchors the candidate matches literally or by shared word stem.
+# Small, domain-independent vocabulary for concrete editorial subjects. Named
+# places and products are intentionally absent: one place's translation must
+# never be used to approve another place's image.
+_EDITORIAL_CONCEPTS = (
+    frozenset({"damaged", "broken", "kirilan", "kirik", "hasarli"}),
+    frozenset({"suitcase", "luggage", "valiz", "baggage"}),
+    frozenset({"airplane", "aircraft", "ucak", "ucakta", "flight"}),
+    frozenset({"digital", "dijital"}),
+    frozenset({"nomad", "gocebe"}),
+    frozenset({"visa", "vize", "vizesi"}),
+    frozenset({"ancient", "antik"}),
+    frozenset({"theater", "theatre", "tiyatro"}),
+    frozenset({"mosque", "cami", "camii"}),
+    frozenset({"church", "kilise", "kilisesi"}),
+    frozenset({"monastery", "manastir", "manastiri"}),
+)
 
-    A hand-written TR/EN equivalence table used to sit here. It only ever knew
-    the vocabulary of the articles someone had already published, so it is gone;
-    cross-language matching belongs to the semantic layer.
-    """
+
+def _matching_anchor_count(candidate_tokens: set[str], anchor_tokens: set[str]) -> int:
+    """Count independently supported anchors, never broad geographic context."""
     candidate_tokens = _specific_tokens(candidate_tokens)
     anchor_tokens = _specific_tokens(anchor_tokens)
     if not candidate_tokens or not anchor_tokens:
         return 0
-    return _literal_matching_anchor_count(candidate_tokens, anchor_tokens)
+
+    count = 0
+    for anchor in anchor_tokens:
+        if _literal_matching_anchor_count(candidate_tokens, {anchor}):
+            count += 1
+            continue
+        # Turkish plural place names are often indexed under the singular
+        # transliteration (Aladağlar -> Aladag). Never strip arbitrary endings.
+        singular = anchor[:-3] if len(anchor) >= 8 and anchor.endswith(("lar", "ler")) else anchor
+        if singular != anchor and _literal_matching_anchor_count(candidate_tokens, {singular}):
+            count += 1
+            continue
+        if any(anchor in group and bool(candidate_tokens & group) for group in _EDITORIAL_CONCEPTS):
+            count += 1
+    return count
 
 
 def _literal_matching_anchor_count(candidate_tokens: set[str], anchor_tokens: set[str]) -> int:
@@ -760,7 +793,10 @@ def _literal_matching_anchor_count(candidate_tokens: set[str], anchor_tokens: se
 
 
 def _matches_anchor_tokens(candidate_tokens: set[str], anchor_tokens: set[str]) -> bool:
-    return _matching_anchor_count(candidate_tokens, anchor_tokens) >= 1
+    specific = _specific_tokens(anchor_tokens)
+    # One shared country, topic or adjective is not evidence for a multi-word
+    # subject. A single named place still needs its own exact/normalized anchor.
+    return bool(specific) and _matching_anchor_count(candidate_tokens, specific) >= min(2, len(specific))
 
 
 def _filter_relevant_candidates(
@@ -835,21 +871,21 @@ def _candidate_matches_heading(
     row = _candidate_metadata_row(candidate)
     if not row:
         return False
-    anchor_tokens = _context_anchor_tokens(
-        post_context or {},
-        heading_text=heading_text,
-        anchor_text=anchor_text,
-    )
-    if not anchor_tokens:
+    # The heading is the subject of this image, not the article title.
+    # A Cappadocia photo must not pass the Uçhisar heading merely because
+    # "Cappadocia" also appears in the parent post's title.
+    heading_tokens = _specific_tokens(_token_set_from_text(_heading_to_search_query(heading_text)))
+    if not heading_tokens:
         return False
     candidate_tokens = _candidate_tokens_from_row(row)
     if required_tokens:
-        # A numbered H3 may be an app or a named location. One incidental
-        # token ("Field" in a landscape) is never enough to represent
-        # "Field Trip" the app.
-        if not required_tokens <= candidate_tokens:
+        # A numbered place/app is an identity contract: *all* meaningful
+        # entity tokens must be found, including normalized names or concrete
+        # translated subject words. No incidental shared context may stand in.
+        specific_required = _specific_tokens(required_tokens)
+        if _matching_anchor_count(candidate_tokens, specific_required) != len(specific_required):
             return False
-    return _matches_anchor_tokens(candidate_tokens, anchor_tokens)
+    return _matches_anchor_tokens(candidate_tokens, heading_tokens)
 
 
 def _numbered_entity_text(heading: Dict[str, Any]) -> str:
@@ -871,8 +907,13 @@ def _numbered_entity_text(heading: Dict[str, Any]) -> str:
 
 
 def _numbered_entity_tokens(heading: Dict[str, Any]) -> set[str]:
-    """Return the full entity contract for a numbered list item."""
-    return _specific_tokens(_token_set_from_text(_numbered_entity_text(heading)))
+    """Return the concrete numbered subject, excluding route and editorial prose.
+
+    The existing query parser extracts the destination of "Bodrum'dan Kos'a
+    Kaçış"; matching the full heading would wrongly require "Bodrum" too.
+    """
+    entity = _numbered_entity_text(heading)
+    return _specific_tokens(_token_set_from_text(_heading_to_search_query(entity))) if entity else set()
 
 
 _ENTITY_PROVIDER_TOKEN_MAP = {
@@ -1082,7 +1123,11 @@ def _heading_specific_selection(
         if expanded_queries:
             attempted_expansions[index] = expanded_queries
         for expanded_query in expanded_queries:
-            anchor_tokens = _specific_tokens(_token_set_from_text(expanded_query))
+            # Expansion proposes *search terms*, not an alternative subject.
+            # A generic image may be discovered, but is never approved unless
+            # its provider title still supports the original heading identity.
+            original_spec = records[index].get("external_spec")
+            anchor_tokens = original_spec[1] if original_spec else set()
             if not anchor_tokens:
                 continue
             try:
