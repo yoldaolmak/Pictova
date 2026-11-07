@@ -140,8 +140,10 @@ def _compute_assigned_headings(
             for pos, item in enumerate(available)
         ]
         relevant = [item for score, _, item in sorted(ranked, key=lambda row: (-row[0], row[1])) if score > 0]
-        if relevant:
-            available = relevant
+        # An explicit query is an editorial constraint, not a preference.
+        # No related heading means no automatic placement; never silently
+        # assign an unrelated image to the first available H2.
+        available = relevant
     remaining_images = [img for img in processed_images if img not in assigned]
     if available and remaining_images:
         n_images = len(remaining_images)
