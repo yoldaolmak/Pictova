@@ -195,7 +195,8 @@ Kurallar:
 - evidence: Lokasyon kanıtı (1-4 adet).
 - confidence: Lokasyon eminlik skoru (0.0 - 1.0).
 
-{{"alt":"...","title":"...","caption":"...","description":"...","keywords":["k1"],"evidence":["kanıt"],"location_tokens":[],"scene_tokens":["sahne"],"confidence":0.8,"warnings":[]}}"""
+{{"alt":"...","title":"...","caption":"...","description":"...","keywords":["k1"],
+"evidence":["kanıt"],"location_tokens":[],"scene_tokens":["sahne"],"confidence":0.8,"warnings":[]}}"""
 
     def _analyze_gpt(self, image_data: str, media_type: str, prompt: str) -> Dict:
         """Analyze with GPT-4o Vision"""
@@ -694,8 +695,6 @@ if __name__ == "__main__":
         gen = YOMetadataGenerator()
         result = gen.analyze_image(str(test_image), location_hint="petra")
         print("\n✅ Metadata generated:")
-        import json
-
         print(json.dumps(result["analysis"], indent=2, ensure_ascii=False))
     else:
         print(f"Test image not found: {test_image}")
