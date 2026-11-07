@@ -154,6 +154,9 @@ def test_studio_responsive_review_and_approved_publish(studio_server, width, hei
             assert layout["contentWidth"] <= width + 1, layout
             assert layout["planButtonWidth"] >= 150, layout
             assert layout["articleWidth"] >= 230, layout
+            for selector in (".candidate .select-control", "#select-none", "#apply-button"):
+                height_px = page.locator(selector).first.evaluate("(element) => element.getBoundingClientRect().height")
+                assert height_px >= 44, (selector, height_px)
 
             page.screenshot(path=str(SCREENSHOTS / f"studio-{width}-review.png"), full_page=True)
             page.locator(".candidate input[type=checkbox]").nth(1).uncheck()
