@@ -51,3 +51,19 @@ pictova guard --site yoldaolmak --post 265713 --reset
 are intended for explicitly managed media only. If a managed image shares a
 Gutenberg gallery with untracked media or editorial gallery content, the
 mutation is rejected rather than deleting the entire gallery.
+
+
+## Studio — optional browser review
+
+The existing CLI commands are unchanged. For the local visual panel:
+
+    pictova studio
+
+This opens the local Studio page with an ephemeral token in the URL fragment.
+For a manually opened browser, run 'pictova studio --no-open' with an existing
+PICTOVA_HTTP_TOKEN environment variable, then enter that token in Studio.
+The existing 'pictova serve' command still requires PICTOVA_HTTP_TOKEN and
+does not change its authentication behavior.
+
+Studio uses the native automatic selector, never the legacy engine. See the
+[Studio guide](../guides/studio.md) for source coverage and consent rules.
