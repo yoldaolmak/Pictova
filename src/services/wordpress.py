@@ -5,7 +5,6 @@ YO OS WordPress Uploader — REST API media upload and attachment
 
 import requests
 import json
-import os
 import re
 import html
 import sys
