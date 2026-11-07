@@ -9,8 +9,8 @@ YO OS Image Processor — Complete pipeline
 
 import os
 from pathlib import Path
-from typing import Dict, List, Tuple
-from PIL import Image, ImageEnhance, ImageFilter, ImageOps
+from typing import Dict, List
+from PIL import Image, ImageFilter, ImageOps
 import subprocess
 import json
 import numpy as np
@@ -18,6 +18,7 @@ import numpy as np
 from src.utils.config import get_vil_dir, load_project_env
 
 load_project_env()
+
 
 class YOImageProcessor:
     """Image processing with YO Blue/Teal filter"""
@@ -46,6 +47,7 @@ class YOImageProcessor:
         Gereksinim: Terminal'e System Settings > Privacy > Full Disk Access verilmiş olmalı.
         """
         import shutil
+
         if not shutil.which("sips"):
             raise RuntimeError("sips not found — HEIC conversion requires macOS")
         jpeg_path = self.work_dir / (input_p.stem + "_heic_tmp.jpg")
@@ -150,10 +152,13 @@ class YOImageProcessor:
         def _load_adaptive() -> "YOAdaptiveFilter":
             try:
                 from src.core.filter import YOAdaptiveFilter as _F
+
                 return _F()
             except ImportError:
                 pass
-            import importlib.util, pathlib
+            import importlib.util
+            import pathlib
+
             root = pathlib.Path(__file__).resolve().parents[2]  # project root
             spec = importlib.util.spec_from_file_location("yo_adaptive_filter", root / "yo_adaptive_filter.py")
             mod = importlib.util.module_from_spec(spec)
@@ -163,6 +168,7 @@ class YOImageProcessor:
         if profile in {"yoldaolmak", "yo-yoldaolmak"}:
             try:
                 from src.core.filter import YOAdaptiveFilter
+
                 filter_obj = YOAdaptiveFilter()
             except ImportError:
                 filter_obj = _load_adaptive()
@@ -236,7 +242,7 @@ class YOImageProcessor:
         if input_p.suffix.lower() in {".heic", ".heif"}:
             input_p = self._heic_to_jpeg(input_p)
             heic_temp = input_p
-            print(f"  ✓ HEIC converted via sips")
+            print("  ✓ HEIC converted via sips")
 
         # Load
         # Normalize EXIF orientation first so rotated phone images are upright.
@@ -254,7 +260,7 @@ class YOImageProcessor:
         # This step reduces payload size for Cloud Vision API
         if img.width > 3000:
             img = self.resize_for_processing(img, max_width=2500)
-            print(f"  ✓ Pre-processed for API")
+            print("  ✓ Pre-processed for API")
 
         img, target_size = self.crop_image(img)
 
@@ -274,19 +280,19 @@ class YOImageProcessor:
             stripped = Image.new(img.mode, img.size)
             stripped.paste(img)
             img = stripped
-            print(f"  ✓ EXIF cleaned")
+            print("  ✓ EXIF cleaned")
         else:
-            print(f"  ✓ EXIF preserved")
+            print("  ✓ EXIF preserved")
 
         # Export WebP
         output_p.parent.mkdir(parents=True, exist_ok=True)
         if webp_mode.lower() == "lossless":
-            img.save(str(output_p), 'WEBP', quality=100, method=6, lossless=True)
+            img.save(str(output_p), "WEBP", quality=100, method=6, lossless=True)
             print("  ✓ WebP saved (lossless)")
         else:
-            img.save(str(output_p), 'WEBP', quality=80, method=6)
+            img.save(str(output_p), "WEBP", quality=80, method=6)
             print("  ✓ WebP saved (lossy)")
-            
+
         file_size_kb = output_p.stat().st_size / 1024
         print(f"  ✓ File size: {file_size_kb:.1f} KB")
 
@@ -321,7 +327,7 @@ class YOImageProcessor:
 
 
 VIL_DIR = get_vil_dir()
-ORIGINAL_EXTS = ['jpg', 'jpeg', 'png', 'JPG', 'JPEG', 'PNG']
+ORIGINAL_EXTS = ["jpg", "jpeg", "png", "JPG", "JPEG", "PNG"]
 
 
 def get_vil_images(count: int = None, name: str = None) -> List[str]:

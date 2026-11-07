@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 import json
+import pytest
 import threading
 import time
 from urllib.request import Request, urlopen
@@ -531,15 +532,29 @@ def test_build_native_metadata_map_raises_without_any_vision_source(monkeypatch)
         )
 
 
-def test_http_server_health_route_returns_json():
-    from src.pictova.app.server import serve
+@pytest.fixture
+def http_auth(monkeypatch):
+    """Use a fake local-only credential for the HTTP integration contract."""
+    token = "pictova-integration-test-token-32-characters-long"
+    monkeypatch.setenv("PICTOVA_HTTP_TOKEN", token)
+    return {"Authorization": "Bearer " + token}
 
-    server = serve(host="127.0.0.1", port=0)
+
+def test_http_server_health_route_returns_json(http_auth, monkeypatch):
+    from src.pictova.app import server as server_module
+
+    # Health tests must never contact configured real WordPress sites.
+    monkeypatch.setattr(
+        server_module,
+        "health_status",
+        lambda: {"status": "ok", "modules": [{"module": "PIL", "status": "ok"}]},
+    )
+    server = server_module.serve(host="127.0.0.1", port=0)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
         host, port = server.server_address
-        with urlopen(f"http://{host}:{port}/health") as response:
+        with urlopen(Request(f"http://{host}:{port}/health", headers=http_auth)) as response:
             payload = json.loads(response.read().decode("utf-8"))
         assert payload["status"] in {"ok", "fail"}
         assert "modules" in payload
@@ -549,7 +564,7 @@ def test_http_server_health_route_returns_json():
         thread.join(timeout=2)
 
 
-def test_http_server_attach_route_uses_api_contract(monkeypatch):
+def test_http_server_attach_route_uses_api_contract(monkeypatch, http_auth):
     from src.pictova.app import server as server_module
 
     monkeypatch.setattr(
@@ -566,7 +581,7 @@ def test_http_server_attach_route_uses_api_contract(monkeypatch):
         request = Request(
             f"http://{host}:{port}/attach",
             data=json.dumps({"site": "yoldaolmak", "post_id": 264459}).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", **http_auth},
             method="POST",
         )
         with urlopen(request) as response:
@@ -579,7 +594,7 @@ def test_http_server_attach_route_uses_api_contract(monkeypatch):
         thread.join(timeout=2)
 
 
-def test_http_server_guard_route_uses_api_contract(monkeypatch):
+def test_http_server_guard_route_uses_api_contract(monkeypatch, http_auth):
     from src.pictova.app import server as server_module
 
     monkeypatch.setattr(
@@ -601,7 +616,7 @@ def test_http_server_guard_route_uses_api_contract(monkeypatch):
         request = Request(
             f"http://{host}:{port}/guard",
             data=json.dumps({"site": "yoldaolmak", "post_id": 267970}).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", **http_auth},
             method="POST",
         )
         with urlopen(request) as response:
@@ -615,7 +630,7 @@ def test_http_server_guard_route_uses_api_contract(monkeypatch):
         thread.join(timeout=2)
 
 
-def test_http_server_attach_job_route_returns_job_and_result(monkeypatch):
+def test_http_server_attach_job_route_returns_job_and_result(monkeypatch, http_auth):
     from src.pictova.app import server as server_module
     from src.pictova.app.state import job_registry
 
@@ -633,7 +648,7 @@ def test_http_server_attach_job_route_returns_job_and_result(monkeypatch):
         request = Request(
             f"http://{host}:{port}/jobs/attach",
             data=json.dumps({"site": "yoldaolmak", "post_id": 264459}).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", **http_auth},
             method="POST",
         )
         with urlopen(request) as response:
@@ -644,7 +659,7 @@ def test_http_server_attach_job_route_returns_job_and_result(monkeypatch):
 
         final_job = None
         for _ in range(20):
-            with urlopen(f"http://{host}:{port}/jobs/{job_id}") as response:
+            with urlopen(Request(f"http://{host}:{port}/jobs/{job_id}", headers=http_auth)) as response:
                 polled = json.loads(response.read().decode("utf-8"))
             if polled["job"]["status"] in {"success", "failed"}:
                 final_job = polled["job"]
@@ -655,7 +670,7 @@ def test_http_server_attach_job_route_returns_job_and_result(monkeypatch):
         assert final_job["status"] == "success"
         assert final_job["result"]["request"]["post_id"] == 264459
 
-        with urlopen(f"http://{host}:{port}/jobs") as response:
+        with urlopen(Request(f"http://{host}:{port}/jobs", headers=http_auth)) as response:
             jobs_payload = json.loads(response.read().decode("utf-8"))
         assert any(item["job_id"] == job_id for item in jobs_payload["jobs"])
     finally:

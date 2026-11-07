@@ -63,6 +63,20 @@ Use `--source deposit` when a licensed DepositPhotos-only run is required. An
 exact match that cannot be found or downloaded returns a structured incomplete
 result; it does not fall back to a loosely related image.
 
+## Optional authenticated HTTP API
+
+The CLI is the simplest operating surface. If local HTTP access is required,
+set a private Bearer token before starting the server:
+
+```bash
+export PICTOVA_HTTP_TOKEN="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+pictova serve --host 127.0.0.1 --port 8040
+```
+
+The HTTP server refuses non-loopback binding and rejects unauthenticated
+requests. It is not a public network service. See the
+[HTTP API reference](docs/reference/http-api.md) for request headers and limits.
+
 ## Mac Photos index
 
 The Photos index is local runtime state, not repository content:

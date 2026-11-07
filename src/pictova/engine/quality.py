@@ -15,45 +15,127 @@ from src.pictova.engine.selector import _matching_anchor_count
 
 
 _EDITORIAL_NOISE_TOKENS = {
-    "advert", "advertisement", "afis", "afiş", "banner", "brochure",
-    "duyuru", "flyer", "kampanya", "marketing", "menu", "menü",
-    "promo", "promotional", "reklam", "screenshot", "slide",
+    "advert",
+    "advertisement",
+    "afis",
+    "afiş",
+    "banner",
+    "brochure",
+    "duyuru",
+    "flyer",
+    "kampanya",
+    "marketing",
+    "menu",
+    "menü",
+    "promo",
+    "promotional",
+    "reklam",
+    "screenshot",
+    "slide",
     "fiyat",
 }
 _EDITORIAL_CLICHE_TOKENS = {
-    "harika", "buyuleyici", "benzersiz", "essiz", "muhtesem",
-    "masalsi", "unutulmaz", "keyifli", "gizemli", "buyulu", "etkileyici",
+    "harika",
+    "buyuleyici",
+    "benzersiz",
+    "essiz",
+    "muhtesem",
+    "masalsi",
+    "unutulmaz",
+    "keyifli",
+    "gizemli",
+    "buyulu",
+    "etkileyici",
 }
 _CONTEXT_STOPWORDS = {
-    "bir", "ve", "ile", "icin", "için", "the", "and",
-    "gezilecek", "yerler", "yerleri", "gezi", "rehberi", "rehber",
-    "travel", "guide", "rota", "rotasi", "rotalar",
-    "detayli", "guncel", "notlari", "notları",
-    "yakin", "yakın", "ulasim", "ulaşım", "gecis", "geçiş",
-    "tavsiyelerim", "tavsiyesi", "ipuclari", "ipuçları",
-    "bilmeniz", "gerekenler", "gitmeden", "giris", "giriş", "ucreti", "ücreti",
-    "kalinir", "kalınır", "nasil", "nasıl", "nerede", "yakininda", "yakınında",
+    "bir",
+    "ve",
+    "ile",
+    "icin",
+    "için",
+    "the",
+    "and",
+    "gezilecek",
+    "yerler",
+    "yerleri",
+    "gezi",
+    "rehberi",
+    "rehber",
+    "travel",
+    "guide",
+    "rota",
+    "rotasi",
+    "rotalar",
+    "detayli",
+    "guncel",
+    "notlari",
+    "notları",
+    "yakin",
+    "yakın",
+    "ulasim",
+    "ulaşım",
+    "gecis",
+    "geçiş",
+    "tavsiyelerim",
+    "tavsiyesi",
+    "ipuclari",
+    "ipuçları",
+    "bilmeniz",
+    "gerekenler",
+    "gitmeden",
+    "giris",
+    "giriş",
+    "ucreti",
+    "ücreti",
+    "kalinir",
+    "kalınır",
+    "nasil",
+    "nasıl",
+    "nerede",
+    "yakininda",
+    "yakınında",
 }
 _GENERIC_VISUAL_TOKENS = {
-    "beach", "beautiful", "dag", "dağ", "forest", "guzel", "güzel", "image",
-    "landscape", "manzara", "mountain", "mountains", "nature", "outdoor", "photo",
-    "plaj", "selale", "selaleleri", "şelale", "şelaleleri", "view", "waterfall",
+    "beach",
+    "beautiful",
+    "dag",
+    "dağ",
+    "forest",
+    "guzel",
+    "güzel",
+    "image",
+    "landscape",
+    "manzara",
+    "mountain",
+    "mountains",
+    "nature",
+    "outdoor",
+    "photo",
+    "plaj",
+    "selale",
+    "selaleleri",
+    "şelale",
+    "şelaleleri",
+    "view",
+    "waterfall",
     "waterfalls",
 }
 _APPLICATION_CONTEXT_TOKENS = {
-    "app", "apps", "application", "applications",
-    "uygulama", "uygulamasi", "uygulamalari", "uygulamalar",
+    "app",
+    "apps",
+    "application",
+    "applications",
+    "uygulama",
+    "uygulamasi",
+    "uygulamalari",
+    "uygulamalar",
 }
 _TURKISH_ASCII = str.maketrans({"ç": "c", "ğ": "g", "ı": "i", "ö": "o", "ş": "s", "ü": "u"})
 
 
 def _tokenize(value: str) -> list[str]:
     value = normalize_text(value).translate(_TURKISH_ASCII)
-    return [
-        token
-        for token in re.findall(r"[a-z0-9]+", value)
-        if len(token) >= 3
-    ]
+    return [token for token in re.findall(r"[a-z0-9]+", value) if len(token) >= 3]
 
 
 def _meaningful_tokens(*values: object) -> set[str]:
@@ -105,9 +187,7 @@ def validate_native_metadata(metadata: Dict[str, Any], post_context: Dict[str, A
     explicit_tokens = _meaningful_tokens(*explicit_raw)
     visual_evidence = str(metadata.get("visual_evidence", "")).strip()
     visual_tokens = _meaningful_tokens(visual_evidence)
-    article_tokens = set(_tokenize(
-        f"{post_context.get('title', '')} {post_context.get('slug', '')}"
-    ))
+    article_tokens = set(_tokenize(f"{post_context.get('title', '')} {post_context.get('slug', '')}"))
 
     if len(title) < 8:
         errors.append("title too short")
@@ -119,7 +199,18 @@ def validate_native_metadata(metadata: Dict[str, Any], post_context: Dict[str, A
         errors.append("description too short")
 
     combined = normalize_text(
-        " ".join([title, alt, caption, description, str(metadata.get("summary", "")), str(metadata.get("scene", "")), str(metadata.get("activity", "")), keyword_text])
+        " ".join(
+            [
+                title,
+                alt,
+                caption,
+                description,
+                str(metadata.get("summary", "")),
+                str(metadata.get("scene", "")),
+                str(metadata.get("activity", "")),
+                keyword_text,
+            ]
+        )
     )
     if any(token in combined for token in BAD_METADATA_TOKENS):
         errors.append("metadata contains source junk tokens")
@@ -137,7 +228,10 @@ def validate_native_metadata(metadata: Dict[str, Any], post_context: Dict[str, A
 
     required_tokens = heading_tokens | context_tokens
     if required_tokens:
-        if _matching_anchor_count(image_tokens, heading_tokens) == 0 and _matching_anchor_count(image_tokens, context_tokens) == 0:
+        if (
+            _matching_anchor_count(image_tokens, heading_tokens) == 0
+            and _matching_anchor_count(image_tokens, context_tokens) == 0
+        ):
             errors.append("metadata does not match heading or post context")
     elif post_slug and not context_tokens and not image_tokens:
         errors.append("metadata is missing contextual anchors")
@@ -147,11 +241,7 @@ def validate_native_metadata(metadata: Dict[str, Any], post_context: Dict[str, A
     # for concise SEO. They cannot prove that the pixels show that entity.
     # For app/product lists the exact brand must be visible in an unprimed
     # vision result; a generic beach portrait may never pass as "Tinder".
-    if (
-        explicit_tokens
-        and article_tokens & _APPLICATION_CONTEXT_TOKENS
-        and not explicit_tokens <= visual_tokens
-    ):
+    if explicit_tokens and article_tokens & _APPLICATION_CONTEXT_TOKENS and not explicit_tokens <= visual_tokens:
         errors.append("visual evidence does not confirm exact assigned-heading entity")
 
     return errors

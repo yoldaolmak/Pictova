@@ -19,8 +19,7 @@ def resolve_post_site(post_id: int, *, site: str = "auto") -> tuple[str, dict]:
         access = YOWordPressUploader.check_site_access(requested)
         if access.get("status") == "rejected":
             raise ValueError(
-                f"WordPress authentication rejected for site: {requested} "
-                f"(HTTP {access.get('http_status')})"
+                f"WordPress authentication rejected for site: {requested} " f"(HTTP {access.get('http_status')})"
             )
         if access.get("status") == "unreachable":
             raise ValueError(f"WordPress could not be reached for site: {requested}")

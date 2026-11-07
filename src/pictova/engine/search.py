@@ -22,12 +22,23 @@ from src.utils.config import get_vil_dir, get_visual_memory_db_path
 
 # ── Semantic arama yardımcıları ──────────────────────────────────────────────
 
+
 def _ascii_normalize(text: str) -> str:
     """Türkçe harfleri ASCII'ye çevir, küçük harf yap — path LIKE araması için."""
     result = str(text or "")
     for src, dst in [
-        ("İ","I"),("Ş","S"),("Ç","C"),("Ğ","G"),("Ü","U"),("Ö","O"),
-        ("ş","s"),("ç","c"),("ğ","g"),("ü","u"),("ö","o"),("ı","i"),
+        ("İ", "I"),
+        ("Ş", "S"),
+        ("Ç", "C"),
+        ("Ğ", "G"),
+        ("Ü", "U"),
+        ("Ö", "O"),
+        ("ş", "s"),
+        ("ç", "c"),
+        ("ğ", "g"),
+        ("ü", "u"),
+        ("ö", "o"),
+        ("ı", "i"),
     ]:
         result = result.replace(src, dst)
     return result.lower()
@@ -35,57 +46,84 @@ def _ascii_normalize(text: str) -> str:
 
 # İçerik filtresi → SQL WHERE parçası (OR mantığıyla, GCV sonrası otomatik zenginleşir)
 CONTENT_FILTER_SQL: dict[str, str] = {
-    "insan":    "(activity IN ('walking','sightseeing','portrait','swimming')"
-                " OR vision_labels_json LIKE '%person%'"
-                " OR vision_labels_json LIKE '%people%'"
-                " OR vision_labels_json LIKE '%face%'"
-                " OR vision_labels_json LIKE '%crowd%')",
+    "insan": "(activity IN ('walking','sightseeing','portrait','swimming')"
+    " OR vision_labels_json LIKE '%person%'"
+    " OR vision_labels_json LIKE '%people%'"
+    " OR vision_labels_json LIKE '%face%'"
+    " OR vision_labels_json LIKE '%crowd%')",
     "portrait": "(activity='portrait' OR vision_labels_json LIKE '%portrait%')",
-    "sokak":    "(scene='street'"
-                " OR vision_labels_json LIKE '%street%'"
-                " OR vision_labels_json LIKE '%alley%'"
-                " OR vision_labels_json LIKE '%road%')",
-    "mimari":   "(scene='landmark'"
-                " OR vision_labels_json LIKE '%building%'"
-                " OR vision_labels_json LIKE '%architecture%'"
-                " OR vision_labels_json LIKE '%church%'"
-                " OR vision_labels_json LIKE '%mosque%')",
-    "doga":     "(scene IN ('nature','landscape')"
-                " OR vision_labels_json LIKE '%nature%'"
-                " OR vision_labels_json LIKE '%forest%'"
-                " OR vision_labels_json LIKE '%mountain%')",
-    "deniz":    "(scene IN ('sahil','kiyi')"
-                " OR vision_labels_json LIKE '%sea%'"
-                " OR vision_labels_json LIKE '%ocean%'"
-                " OR vision_labels_json LIKE '%beach%'"
-                " OR vision_labels_json LIKE '%coast%')",
-    "gece":     "(vision_labels_json LIKE '%night%' OR vision_labels_json LIKE '%dark%')",
-    "pazar":    "(scene='market'"
-                " OR vision_labels_json LIKE '%market%'"
-                " OR vision_labels_json LIKE '%bazaar%')",
-    "tapinak":  "(scene='landmark'"
-                " OR vision_labels_json LIKE '%temple%'"
-                " OR vision_labels_json LIKE '%mosque%'"
-                " OR vision_labels_json LIKE '%pagoda%')",
-    "yiyecek":  "(vision_labels_json LIKE '%food%' OR vision_labels_json LIKE '%dish%')",
-    "tekne":    "(vision_labels_json LIKE '%boat%' OR vision_labels_json LIKE '%ship%'"
-                " OR vision_labels_json LIKE '%vessel%')",
+    "sokak": "(scene='street'"
+    " OR vision_labels_json LIKE '%street%'"
+    " OR vision_labels_json LIKE '%alley%'"
+    " OR vision_labels_json LIKE '%road%')",
+    "mimari": "(scene='landmark'"
+    " OR vision_labels_json LIKE '%building%'"
+    " OR vision_labels_json LIKE '%architecture%'"
+    " OR vision_labels_json LIKE '%church%'"
+    " OR vision_labels_json LIKE '%mosque%')",
+    "doga": "(scene IN ('nature','landscape')"
+    " OR vision_labels_json LIKE '%nature%'"
+    " OR vision_labels_json LIKE '%forest%'"
+    " OR vision_labels_json LIKE '%mountain%')",
+    "deniz": "(scene IN ('sahil','kiyi')"
+    " OR vision_labels_json LIKE '%sea%'"
+    " OR vision_labels_json LIKE '%ocean%'"
+    " OR vision_labels_json LIKE '%beach%'"
+    " OR vision_labels_json LIKE '%coast%')",
+    "gece": "(vision_labels_json LIKE '%night%' OR vision_labels_json LIKE '%dark%')",
+    "pazar": "(scene='market'" " OR vision_labels_json LIKE '%market%'" " OR vision_labels_json LIKE '%bazaar%')",
+    "tapinak": "(scene='landmark'"
+    " OR vision_labels_json LIKE '%temple%'"
+    " OR vision_labels_json LIKE '%mosque%'"
+    " OR vision_labels_json LIKE '%pagoda%')",
+    "yiyecek": "(vision_labels_json LIKE '%food%' OR vision_labels_json LIKE '%dish%')",
+    "tekne": "(vision_labels_json LIKE '%boat%' OR vision_labels_json LIKE '%ship%'"
+    " OR vision_labels_json LIKE '%vessel%')",
 }
 
 # Takma adlar
 _FILTER_ALIASES: dict[str, str] = {
-    "insan": "insan", "insanlar": "insan", "kisi": "insan", "kisiler": "insan",
-    "people": "insan", "person": "insan", "adam": "insan", "kadin": "insan",
-    "portrait": "portrait", "portre": "portrait",
-    "sokak": "sokak", "cadde": "sokak", "street": "sokak",
-    "mimari": "mimari", "bina": "mimari", "yapi": "mimari", "architecture": "mimari",
-    "doga": "doga", "nature": "doga", "orman": "doga", "dag": "doga",
-    "deniz": "deniz", "sahil": "deniz", "beach": "deniz", "sea": "deniz",
-    "gece": "gece", "night": "gece",
-    "pazar": "pazar", "market": "pazar", "bazaar": "pazar", "carsi": "pazar",
-    "tapinak": "tapinak", "cami": "tapinak", "mosque": "tapinak", "kilise": "tapinak",
-    "yemek": "yiyecek", "food": "yiyecek", "yiyecek": "yiyecek",
-    "tekne": "tekne", "boat": "tekne", "gemi": "tekne",
+    "insan": "insan",
+    "insanlar": "insan",
+    "kisi": "insan",
+    "kisiler": "insan",
+    "people": "insan",
+    "person": "insan",
+    "adam": "insan",
+    "kadin": "insan",
+    "portrait": "portrait",
+    "portre": "portrait",
+    "sokak": "sokak",
+    "cadde": "sokak",
+    "street": "sokak",
+    "mimari": "mimari",
+    "bina": "mimari",
+    "yapi": "mimari",
+    "architecture": "mimari",
+    "doga": "doga",
+    "nature": "doga",
+    "orman": "doga",
+    "dag": "doga",
+    "deniz": "deniz",
+    "sahil": "deniz",
+    "beach": "deniz",
+    "sea": "deniz",
+    "gece": "gece",
+    "night": "gece",
+    "pazar": "pazar",
+    "market": "pazar",
+    "bazaar": "pazar",
+    "carsi": "pazar",
+    "tapinak": "tapinak",
+    "cami": "tapinak",
+    "mosque": "tapinak",
+    "kilise": "tapinak",
+    "yemek": "yiyecek",
+    "food": "yiyecek",
+    "yiyecek": "yiyecek",
+    "tekne": "tekne",
+    "boat": "tekne",
+    "gemi": "tekne",
 }
 
 
@@ -272,8 +310,6 @@ def search_semantic_assets(
     content_filter: "insan", "sokak", "mimari" vb. — None = filtre yok
     Döndürür: mevcut dosya path'lerinin listesi
     """
-    import sqlite3
-
     db_path = get_visual_memory_db_path()
     if not db_path.exists():
         return []
@@ -281,6 +317,7 @@ def search_semantic_assets(
     # Coğrafi alias genişletme
     try:
         from src.pictova.engine.geo_aliases import expand_query
+
         expanded_terms = expand_query(location_query)
     except Exception:
         expanded_terms = [location_query]
@@ -288,7 +325,7 @@ def search_semantic_assets(
     # Sorguyu normalize et — Türkçe karakterleri koru, FTS unicode61 halleder
     # Tüm expanded terimleri birleştir
     combined_query = " ".join(expanded_terms[:4])  # ilk 4 terim
-    query_clean = re.sub(r'[^\w\s]', ' ', combined_query, flags=re.UNICODE).strip()
+    query_clean = re.sub(r"[^\w\s]", " ", combined_query, flags=re.UNICODE).strip()
     tokens = [t for t in re.split(r"\s+", query_clean) if len(t) >= 3]
     if not tokens:
         return []
@@ -306,15 +343,15 @@ def search_semantic_assets(
     # İçerik filtresi SQL (Dinamik)
     content_sql_parts = []
     content_sql_params = []
-    
+
     if content_filter:
-        for raw_item in str(content_filter).split(','):
+        for raw_item in str(content_filter).split(","):
             item = raw_item.strip().lower()
             if not item:
                 continue
-                
+
             norm_item = _ascii_normalize(item)
-            
+
             if norm_item == "dikey":
                 content_sql_parts.append("a.orientation = 'portrait'")
             elif norm_item == "yatay":
@@ -325,10 +362,12 @@ def search_semantic_assets(
                     content_sql_parts.append(CONTENT_FILTER_SQL[canonical_cf])
                 else:
                     # Serbest metin -> keyword / people / description araması
-                    content_sql_parts.append("(a.ai_keywords_json LIKE ? OR a.description LIKE ? OR a.people_json LIKE ?)")
+                    content_sql_parts.append(
+                        "(a.ai_keywords_json LIKE ? OR a.description LIKE ? OR a.people_json LIKE ?)"
+                    )
                     like_val = f"%{item}%"
                     content_sql_params.extend([like_val, like_val, like_val])
-                    
+
     content_filter_clause = f"AND ({' AND '.join(content_sql_parts)})" if content_sql_parts else ""
 
     conn = sqlite3.connect(db_path)
@@ -364,14 +403,13 @@ def search_semantic_assets(
         # FTS sonuç yetersizse LIKE fallback (tek token, city/state_province)
         if len(rows) < count and tokens:
             like_clauses = " OR ".join(
-                f"LOWER(COALESCE(city,'')) LIKE ? OR LOWER(COALESCE(state_province,'')) LIKE ?"
-                for _ in tokens
+                "LOWER(COALESCE(city,'')) LIKE ? OR LOWER(COALESCE(state_province,'')) LIKE ?" for _ in tokens
             )
             like_params = [f"%{t.lower()}%" for t in tokens for _ in range(2)]
-            
+
             # LIKE fallback için content filter alanlarındaki a. öneklerini kaldır
-            fallback_content_clause = content_filter_clause.replace('a.', '') if content_filter_clause else ''
-            
+            fallback_content_clause = content_filter_clause.replace("a.", "") if content_filter_clause else ""
+
             fb_sql = f"""
                 SELECT source_path, filename, quality_score, selection_score,
                        activity, scene, location, city, state_province,
@@ -396,15 +434,14 @@ def search_semantic_assets(
                 fb_rows = []
             rows = list(rows) + [r for r in fb_rows if r["source_path"] not in seen]
 
-        if not content_filter and len(_select_diverse_rows(
-            list(rows), count, include_icloud=include_icloud, allow_people=allow_people
-        )) < count:
+        if (
+            not content_filter
+            and len(_select_diverse_rows(list(rows), count, include_icloud=include_icloud, allow_people=allow_people))
+            < count
+        ):
             seen_ids = {str(_row_value(row, "source_id", "")) for row in rows}
             trip_rows = _expand_trip_candidates(conn, list(rows), count, include_icloud=include_icloud)
-            rows = list(rows) + [
-                row for row in trip_rows
-                if str(_row_value(row, "source_id", "")) not in seen_ids
-            ]
+            rows = list(rows) + [row for row in trip_rows if str(_row_value(row, "source_id", "")) not in seen_ids]
     finally:
         conn.close()
 
@@ -413,9 +450,7 @@ def search_semantic_assets(
         rows = sorted(rows, key=lambda r: _hero_score(r, post_context), reverse=True)
 
     paths: list[str] = []
-    for row in _select_diverse_rows(
-        list(rows), count, include_icloud=include_icloud, allow_people=allow_people
-    ):
+    for row in _select_diverse_rows(list(rows), count, include_icloud=include_icloud, allow_people=allow_people):
         src = str(_row_value(row, "source_path", "") or "")
         if not src:
             if include_icloud:
@@ -431,10 +466,7 @@ def load_vil_images_from_index(count: int | None = None, name: str | None = None
 
 
 def _tokenize_focus(text: str) -> list[str]:
-    return [
-        token for token in re.findall(r"[a-zA-Z0-9çğıöşüÇĞİÖŞÜ]+", str(text or "").lower())
-        if len(token) >= 3
-    ]
+    return [token for token in re.findall(r"[a-zA-Z0-9çğıöşüÇĞİÖŞÜ]+", str(text or "").lower()) if len(token) >= 3]
 
 
 def _hero_score(row: Dict, post_context: Dict) -> float:
@@ -444,6 +476,7 @@ def _hero_score(row: Dict, post_context: Dict) -> float:
     focus_tokens = title_tokens[:6] + [token for token in slug_tokens if token not in title_tokens][:4]
     try:
         import json as _json
+
         ai_kws = " ".join(_json.loads(_row_value(row, "ai_keywords_json", "[]") or "[]"))
     except Exception:
         ai_kws = ""
@@ -500,5 +533,3 @@ def load_vil_images_from_index_for_post(
         if path.exists():
             paths.append(str(path))
     return paths[: count or len(paths)]
-
-

@@ -5,7 +5,6 @@ YO OS WordPress Uploader — REST API media upload and attachment
 
 import requests
 import json
-import os
 import re
 import html
 import sys
@@ -129,7 +128,9 @@ class YOWordPressUploader:
     }
 
     @classmethod
-    def site_readiness(cls, *, verify_remote: bool = False, verify_upload: bool = False) -> Dict[str, Dict[str, object]]:
+    def site_readiness(
+        cls, *, verify_remote: bool = False, verify_upload: bool = False
+    ) -> Dict[str, Dict[str, object]]:
         """Return publish readiness without ever returning credential values.
 
         A missing app password used to appear only after a job had already
@@ -195,7 +196,8 @@ class YOWordPressUploader:
         self.password = config["password"]
         if not self.base_url or not self.user or not self.password:
             raise ValueError(
-                f"Missing WordPress credentials for site: {site}; set {config.get('credential_names', 'the site app-password variable')}"
+                f"Missing WordPress credentials for site: {site}; set "
+                f"{config.get('credential_names', 'the site app-password variable')}"
             )
         self.session = self._create_session()
 
@@ -203,9 +205,11 @@ class YOWordPressUploader:
         """Create authenticated session"""
         session = requests.Session()
         session.auth = (self.user, self.password)
-        session.headers.update({
-            "User-Agent": "YO-OS-Media-Uploader/1.0",
-        })
+        session.headers.update(
+            {
+                "User-Agent": "YO-OS-Media-Uploader/1.0",
+            }
+        )
         return session
 
     def verify_upload_path(self) -> Dict[str, object]:
@@ -259,7 +263,6 @@ class YOWordPressUploader:
         if response.status_code in {401, 403}:
             return {"status": "rejected", "http_status": response.status_code}
         return {"status": "unreachable", "http_status": response.status_code}
-
 
     def upload_media(
         self,
@@ -416,14 +419,10 @@ class YOWordPressUploader:
             return {"success": False, "error": str(exc)}
         managed_items = list(manifest.get("media_items") or [])
         managed_by_id = {
-            int(item.get("media_id") or 0): dict(item)
-            for item in managed_items
-            if int(item.get("media_id") or 0) > 0
+            int(item.get("media_id") or 0): dict(item) for item in managed_items if int(item.get("media_id") or 0) > 0
         }
         requested_by_id = {
-            int(item.get("media_id") or 0): dict(item)
-            for item in media_items
-            if int(item.get("media_id") or 0) > 0
+            int(item.get("media_id") or 0): dict(item) for item in media_items if int(item.get("media_id") or 0) > 0
         }
         if not requested_by_id:
             return {"success": False, "error": "No managed media items were provided"}
@@ -450,12 +449,13 @@ class YOWordPressUploader:
             if media_id in requested_by_id:
                 requested = requested_by_id[media_id]
                 refreshed["caption"] = str(requested.get("caption") or "").strip()
-                refreshed["description"] = str(requested.get("description") or refreshed["caption"] or refreshed.get("alt") or "").strip()
+                refreshed["description"] = str(
+                    requested.get("description") or refreshed["caption"] or refreshed.get("alt") or ""
+                ).strip()
             refreshed_items.append(refreshed)
 
         captions_by_media_id = {
-            media_id: str(requested_by_id[media_id].get("caption") or "").strip()
-            for media_id in requested_by_id
+            media_id: str(requested_by_id[media_id].get("caption") or "").strip() for media_id in requested_by_id
         }
         original_content = post.get("content_raw", "") or ""
         updated_content, found_ids = _replace_managed_figure_captions(
@@ -501,7 +501,9 @@ class YOWordPressUploader:
                     title=str(existing.get("title") or "Image"),
                     alt_text=str(existing.get("alt") or ""),
                     caption=str(requested.get("caption") or ""),
-                    description=str(requested.get("description") or requested.get("caption") or existing.get("alt") or ""),
+                    description=str(
+                        requested.get("description") or requested.get("caption") or existing.get("alt") or ""
+                    ),
                 )
             )
         failed_updates = [item for item in attachment_updates if not item.get("success")]
@@ -573,10 +575,7 @@ class YOWordPressUploader:
         cleaned_content, removed_blocks = self._remove_managed_media_blocks(current_content, target_ids)
         if removed_blocks == 0:
             return {"success": False, "error": "Requested managed media blocks were not found"}
-        remaining_items = [
-            item for item in managed_items
-            if int(item.get("media_id") or 0) not in target_ids
-        ]
+        remaining_items = [item for item in managed_items if int(item.get("media_id") or 0) not in target_ids]
         committed = self._commit_post_content(
             post_id=post_id,
             original_content=current_content,
@@ -674,9 +673,7 @@ class YOWordPressUploader:
                 }
             existing_items = list(manifest.get("media_items") or [])
             combined: Dict[int, Dict] = {
-                int(item.get("media_id") or 0): item
-                for item in existing_items
-                if item.get("media_id")
+                int(item.get("media_id") or 0): item for item in existing_items if item.get("media_id")
             }
             for item in media_items:
                 media_id = int(item.get("media_id") or 0)
@@ -701,11 +698,7 @@ class YOWordPressUploader:
 
         repositioned = 0
         if reposition_managed:
-            managed_ids = {
-                int(item.get("media_id") or 0)
-                for item in media_items
-                if item.get("media_id")
-            }
+            managed_ids = {int(item.get("media_id") or 0) for item in media_items if item.get("media_id")}
             current_content, repositioned = self._remove_managed_media_blocks(
                 current_content,
                 managed_ids,
@@ -786,7 +779,7 @@ class YOWordPressUploader:
                     if caption:
                         block += f'<figcaption class="wp-element-caption">{caption}</figcaption>'
                     block += "</figure>\n<!-- /wp:image -->\n"
-                block += '</figure>\n<!-- /wp:gallery -->'
+                block += "</figure>\n<!-- /wp:gallery -->"
 
             if heading_text:
                 updated_content = _insert_block_after_heading(
@@ -1149,9 +1142,7 @@ class YOWordPressUploader:
         if sources:
             unique_sources = list(dict.fromkeys(sources))
             with ThreadPoolExecutor(max_workers=min(6, len(unique_sources))) as pool:
-                for src, is_missing in zip(
-                    unique_sources, pool.map(self._image_is_missing, unique_sources)
-                ):
+                for src, is_missing in zip(unique_sources, pool.map(self._image_is_missing, unique_sources)):
                     if is_missing:
                         missing.add(src)
 
@@ -1398,7 +1389,8 @@ def _extract_available_headings(content: str) -> list[dict]:
     only consecutively numbered H2 items are eligible.
     """
     heading_pattern = re.compile(
-        r"<!-- wp:heading(?:\s+\{.*?\})? -->\s*<h(?P<level>[2-3])\b[^>]*>(?P<inner>.*?)</h(?P=level)>\s*<!-- /wp:heading -->",
+        r"<!-- wp:heading(?:\s+\{.*?\})? -->\s*"
+        r"<h(?P<level>[2-3])\b[^>]*>(?P<inner>.*?)</h(?P=level)>\s*<!-- /wp:heading -->",
         flags=re.S | re.I,
     )
     matches = list(heading_pattern.finditer(content))
@@ -1412,7 +1404,8 @@ def _extract_available_headings(content: str) -> list[dict]:
     ]
 
     list_parents = {
-        idx for idx, heading in enumerate(headings)
+        idx
+        for idx, heading in enumerate(headings)
         if heading["level"] == 2
         and re.search(
             r"\b(?:gezilecek\s+yer(?:ler|leri)?|görülmesi\s+gereken\s+yer(?:ler|leri)?)\b",
@@ -1538,10 +1531,12 @@ def upload_images_batch(
     guard = uploader.guard_post_media(post_id)
     results["media_guard"] = guard
     if guard.get("status") in {"drift", "failed"}:
-        results["failed"].append({
-            "error": "Post media integrity check failed before upload",
-            "guard": guard,
-        })
+        results["failed"].append(
+            {
+                "error": "Post media integrity check failed before upload",
+                "guard": guard,
+            }
+        )
         return results
 
     # A repeated Pictova request must be idempotent. The public filename is
@@ -1568,11 +1563,13 @@ def upload_images_batch(
 
         meta = metadata_dict.get(file_path, {})
         if not meta:
-            print(f"  ✗ No metadata found", file=sys.stderr)
-            results["failed"].append({
-                "file": file_path,
-                "error": "No metadata",
-            })
+            print("  ✗ No metadata found", file=sys.stderr)
+            results["failed"].append(
+                {
+                    "file": file_path,
+                    "error": "No metadata",
+                }
+            )
             continue
 
         identity = (
@@ -1582,11 +1579,13 @@ def upload_images_batch(
         )
         existing = existing_by_identity.get(identity)
         if existing:
-            results["skipped"].append({
-                "file": Path(file_path).name,
-                "media_id": int(existing["media_id"]),
-                "reason": "identical managed file and heading already present",
-            })
+            results["skipped"].append(
+                {
+                    "file": Path(file_path).name,
+                    "media_id": int(existing["media_id"]),
+                    "reason": "identical managed file and heading already present",
+                }
+            )
             continue
 
         # Upload media
@@ -1600,10 +1599,12 @@ def upload_images_batch(
 
         if not upload_result["success"]:
             print(f"  ✗ Upload failed: {upload_result['error']}")
-            results["failed"].append({
-                "file": file_path,
-                "error": upload_result["error"],
-            })
+            results["failed"].append(
+                {
+                    "file": file_path,
+                    "error": upload_result["error"],
+                }
+            )
             continue
 
         media_id = upload_result["media_id"]
@@ -1617,32 +1618,36 @@ def upload_images_batch(
 
         if attach_result["success"]:
             print(f"  ✓ Attached to post {post_id}")
-            results["uploaded"].append({
-                "file": Path(file_path).name,
-                "media_id": media_id,
-                "post_id": post_id,
-                "title": meta.get("title"),
-                "alt": meta.get("alt"),
-                "caption": meta.get("caption"),
-                "heading": meta.get("heading"),
-                "heading_level": meta.get("heading_level"),
-                "gallery": bool(meta.get("gallery")),
-                "url": upload_result.get("url", ""),
-            })
+            results["uploaded"].append(
+                {
+                    "file": Path(file_path).name,
+                    "media_id": media_id,
+                    "post_id": post_id,
+                    "title": meta.get("title"),
+                    "alt": meta.get("alt"),
+                    "caption": meta.get("caption"),
+                    "heading": meta.get("heading"),
+                    "heading_level": meta.get("heading_level"),
+                    "gallery": bool(meta.get("gallery")),
+                    "url": upload_result.get("url", ""),
+                }
+            )
         else:
             print(f"  ⚠️  Upload OK but attach failed: {attach_result['error']}")
-            results["uploaded"].append({
-                "file": Path(file_path).name,
-                "media_id": media_id,
-                "attach_error": attach_result["error"],
-                "caption": meta.get("caption"),
-                "title": meta.get("title"),
-                "alt": meta.get("alt"),
-                "heading": meta.get("heading"),
-                "heading_level": meta.get("heading_level"),
-                "gallery": bool(meta.get("gallery")),
-                "url": upload_result.get("url", ""),
-            })
+            results["uploaded"].append(
+                {
+                    "file": Path(file_path).name,
+                    "media_id": media_id,
+                    "attach_error": attach_result["error"],
+                    "caption": meta.get("caption"),
+                    "title": meta.get("title"),
+                    "alt": meta.get("alt"),
+                    "heading": meta.get("heading"),
+                    "heading_level": meta.get("heading_level"),
+                    "gallery": bool(meta.get("gallery")),
+                    "url": upload_result.get("url", ""),
+                }
+            )
 
     if not results["uploaded"]:
         results["content_update"] = {

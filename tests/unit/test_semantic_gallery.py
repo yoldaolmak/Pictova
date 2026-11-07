@@ -4,8 +4,22 @@ from unittest.mock import MagicMock, patch
 from src.main import search_semantic_assets
 from src.services.wordpress import YOWordPressUploader
 
+@pytest.fixture
+def wp_test_site(monkeypatch):
+    """Use fake credentials so gallery tests never depend on a real WordPress site."""
+    monkeypatch.setitem(
+        YOWordPressUploader.SITE_ENDPOINTS,
+        "yoldaolmak",
+        {
+            "url": "https://example.test",
+            "user": "unit-test",
+            "password": "not-a-real-password",
+        },
+    )
+
+
 @patch('sqlite3.connect')
-@patch('src.main.get_visual_memory_db_path')
+@patch('src.pictova.engine.search.get_visual_memory_db_path')
 def test_dynamic_sql_filters_portrait_person(mock_get_db_path, mock_connect):
     conn_mock = MagicMock()
     mock_connect.return_value = conn_mock
@@ -33,6 +47,7 @@ def test_append_media_to_post_content_creates_gallery(
     mock_env,
     tmp_path,
     monkeypatch,
+    wp_test_site,
 ):
     monkeypatch.setenv("PICTOVA_POST_MANIFEST_DIR", str(tmp_path / "manifests"))
     wp = YOWordPressUploader()
@@ -84,7 +99,7 @@ def test_append_media_to_post_content_creates_gallery(
 @patch.object(YOWordPressUploader, 'fetch_post_context')
 @patch('requests.Session.post')
 def test_append_media_to_post_content_keeps_unrequested_images_individual(
-    mock_post, mock_fetch, mock_env, tmp_path, monkeypatch,
+    mock_post, mock_fetch, mock_env, tmp_path, monkeypatch, wp_test_site,
 ):
     """Three requested images do not silently become a gallery."""
     monkeypatch.setenv("PICTOVA_POST_MANIFEST_DIR", str(tmp_path / "manifests"))

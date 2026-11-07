@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import json
 import re
-from pathlib import Path
 from typing import Any, Dict, List
 
 from src.utils.config import PROJECT_ROOT
@@ -87,10 +86,7 @@ def rank_headings(headings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         enumerate(headings),
         key=lambda pair: (-fill_rate(heading_kind(pair[1])), pair[0]),
     )
-    preferred = [
-        heading for _, heading in ranked
-        if fill_rate(heading_kind(heading)) >= _FILL_RATE_FLOOR
-    ]
+    preferred = [heading for _, heading in ranked if fill_rate(heading_kind(heading)) >= _FILL_RATE_FLOOR]
     return preferred or [heading for _, heading in ranked]
 
 
@@ -110,7 +106,8 @@ def gallery_size_range() -> tuple[int, int]:
     sizes = sorted(
         int(name.split("-")[1])
         for name in shapes
-        if name.startswith("gallery-") and name.split("-")[1].isdigit()
+        if name.startswith("gallery-")
+        and name.split("-")[1].isdigit()
         and shapes[name] >= max(3, 0.01 * sum(shapes.values()))
         and int(name.split("-")[1]) >= 2
     )

@@ -58,14 +58,17 @@ def _gemini_api_keys() -> list[str]:
 
 # ── Common helpers ────────────────────────────────────────────────────────
 
+
 def _image_b64(image_path: str, max_side: int = 0) -> tuple[str, str]:
     """(base64_str, mime_type). If max_side>0, creates a thumbnail via PIL."""
     import io
+
     p = Path(image_path)
     mime = "image/jpeg"
     if max_side > 0:
         try:
             from PIL import Image as _PIL
+
             img = _PIL.open(str(p)).convert("RGB")
             img.thumbnail((max_side, max_side))
             buf = io.BytesIO()
@@ -74,14 +77,15 @@ def _image_b64(image_path: str, max_side: int = 0) -> tuple[str, str]:
         except Exception:
             pass
     ext = p.suffix.lower()
-    mime = {".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-            ".png": "image/png", ".webp": "image/webp"}.get(ext, "image/jpeg")
+    mime = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}.get(
+        ext, "image/jpeg"
+    )
     with open(image_path, "rb") as f:
         return base64.b64encode(f.read()).decode(), mime
 
 
 def _strip_ansi(text: str) -> str:
-    return re.sub(r'\x1b\[[0-9;]*m|\x1b\[?[0-9;]*[a-zA-Z]', '', text)
+    return re.sub(r"\x1b\[[0-9;]*m|\x1b\[?[0-9;]*[a-zA-Z]", "", text)
 
 
 def _parse_json_from_text(text: str) -> Dict:
@@ -105,22 +109,26 @@ def _vision_prompt(image_path: str, location_hint: str, post_context: Dict) -> s
     # the requested section (for example, calling any beach portrait "Tinder").
     del image_path, location_hint, post_context
     return (
-        f"Görseli yalnızca görünen piksellere dayanarak analiz et ve SADECE JSON döndür.\n"
-        f"Başlık, lokasyon veya yazı bağlamı verilmemiştir: görünmeyen marka, uygulama, kişi, yer veya olayı tahmin etme.\n\n"
-        f"Kurallar:\n"
-        f"- alt: Ekran okuyucu ve erişilebilirlik için sade görsel tanımı (Türkçe, maks 120 kr)\n"
-        f"- title: Yalnızca görünür konu veya okunabilen işaret/markadan oluşan kısa başlık (Türkçe, maks 60 kr)\n"
-        f"- visible_text: Ekran, tabela veya logoda gerçekten okunabilen metin; yoksa boş string\n"
-        f"- caption/description: Kısa görsel bilgisi; editoryal cümle veya hikâye yazma\n"
-        f"- summary: Tek cümle özet (Türkçe, maks 120 kr)\n"
-        f"- keywords: 3-5 adet anahtar kelime (Türkçe)\n"
-        f"- scene/activity: Kategori ve aktivite (İngilizce)\n"
-        f"- story_score: Seyahat değeri (0.0 - 1.0)\n\n"
-        f"{{\"alt\":\"...\",\"title\":\"...\",\"visible_text\":\"...\",\"caption\":\"...\",\"description\":\"...\",\"summary\":\"...\",\"keywords\":[],\"people\":[],\"scene\":\"...\",\"activity\":\"...\",\"story_score\":0.8}}"
+        "Görseli yalnızca görünen piksellere dayanarak analiz et ve SADECE JSON döndür.\n"
+        "Başlık, lokasyon veya yazı bağlamı verilmemiştir: görünmeyen marka, uygulama, kişi, "
+        "yer veya olayı tahmin etme.\n\n"
+        "Kurallar:\n"
+        "- alt: Ekran okuyucu ve erişilebilirlik için sade görsel tanımı (Türkçe, maks 120 kr)\n"
+        "- title: Yalnızca görünür konu veya okunabilen işaret/markadan oluşan kısa başlık (Türkçe, maks 60 kr)\n"
+        "- visible_text: Ekran, tabela veya logoda gerçekten okunabilen metin; yoksa boş string\n"
+        "- caption/description: Kısa görsel bilgisi; editoryal cümle veya hikâye yazma\n"
+        "- summary: Tek cümle özet (Türkçe, maks 120 kr)\n"
+        "- keywords: 3-5 adet anahtar kelime (Türkçe)\n"
+        "- scene/activity: Kategori ve aktivite (İngilizce)\n"
+        "- story_score: Seyahat değeri (0.0 - 1.0)\n\n"
+        '{"alt":"...","title":"...","visible_text":"...","caption":"...",'
+        '"description":"...","summary":"...","keywords":[],"people":[],'
+        '"scene":"...","activity":"...","story_score":0.8}'
     )
 
 
 # ── 1. Gemini Flash REST API ─────────────────────────────────────────────────
+
 
 def _analyze_gemini_flash(
     image_path: str,
@@ -140,26 +148,26 @@ def _analyze_gemini_flash(
     prompt = _vision_prompt(image_path, location_hint, post_context)
     model = env_str("GEMINI_VISION_MODEL") or "gemini-2.5-flash"
 
-    body = json.dumps({
-        "contents": [{
-            "parts": [
-                {"inline_data": {"mime_type": mime, "data": b64}},
-                {"text": prompt},
-            ]
-        }],
-        "generationConfig": {"maxOutputTokens": 400, "temperature": 0.2},
-    }).encode()
+    body = json.dumps(
+        {
+            "contents": [
+                {
+                    "parts": [
+                        {"inline_data": {"mime_type": mime, "data": b64}},
+                        {"text": prompt},
+                    ]
+                }
+            ],
+            "generationConfig": {"maxOutputTokens": 400, "temperature": 0.2},
+        }
+    ).encode()
 
     data = None
     last_error = None
     for api_key in available_keys:
-        url = (
-            f"https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{model}:generateContent?key={api_key}"
-        )
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/" f"{model}:generateContent?key={api_key}"
         try:
-            req = urllib.request.Request(url, data=body, method="POST",
-                                         headers={"Content-Type": "application/json"})
+            req = urllib.request.Request(url, data=body, method="POST", headers={"Content-Type": "application/json"})
             with urllib.request.urlopen(req, timeout=30) as resp:
                 data = json.loads(resp.read())
             break
@@ -210,6 +218,7 @@ def _analyze_openai_mini(
 
 # ── 2. Codex CLI web login ───────────────────────────────────────────────────
 
+
 def _codex_check_login() -> bool:
     auth = Path.home() / ".codex" / "auth.json"
     if not auth.exists():
@@ -251,10 +260,7 @@ def _analyze_codex(
         raise RuntimeError("codex CLI not found")
 
     prompt_text = _vision_prompt(image_path, location_hint, post_context)
-    full_prompt = (
-        f"Analyze the image file at path: {image_path}\n\n"
-        f"{prompt_text}"
-    )
+    full_prompt = f"Analyze the image file at path: {image_path}\n\n" f"{prompt_text}"
 
     with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as of:
         out_path = of.name
@@ -263,8 +269,10 @@ def _analyze_codex(
         result = subprocess.run(
             [codex_bin, "exec", "--yolo", "--skip-git-repo-check", "-o", out_path, "-"],
             input=full_prompt,
-            text=True, check=False,
-            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
             timeout=180,
         )
         if result.returncode != 0:
@@ -283,10 +291,10 @@ def _analyze_codex(
 
 # ── 3. Claude CLI web login ──────────────────────────────────────────────────
 
+
 def _prepare_image_for_cli(image_path: str, max_side: int = 512) -> str:
     """Convert HEIC or large files to a small JPEG thumbnail. Returns the path."""
     p = Path(image_path)
-    ext = p.suffix.lower()
     # A fixed /tmp name is both a collision between concurrent runs on the same
     # stem and a world-writable path another user can pre-create.
     thumb_dir = Path(tempfile.mkdtemp(prefix="pictova_thumb_"))
@@ -295,6 +303,7 @@ def _prepare_image_for_cli(image_path: str, max_side: int = 512) -> str:
     # 1. Conversion via PIL (best quality)
     try:
         from PIL import Image as _PIL, ImageOps as _IO
+
         img = _IO.exif_transpose(_PIL.open(str(p))).convert("RGB")
         img.thumbnail((max_side, max_side))
         img.save(str(tmp), "JPEG", quality=75)
@@ -308,7 +317,8 @@ def _prepare_image_for_cli(image_path: str, max_side: int = 512) -> str:
     if sips_bin:
         r = subprocess.run(
             [sips_bin, "-s", "format", "jpeg", "-Z", str(max_side), str(p), "--out", str(tmp)],
-            capture_output=True, timeout=30,
+            capture_output=True,
+            timeout=30,
         )
         if r.returncode == 0 and tmp.exists() and tmp.stat().st_size > 0:
             return str(tmp)
@@ -318,7 +328,8 @@ def _prepare_image_for_cli(image_path: str, max_side: int = 512) -> str:
     if convert_bin:
         r = subprocess.run(
             [convert_bin, f"{p}[0]", "-resize", f"{max_side}x{max_side}>", "-quality", "75", str(tmp)],
-            capture_output=True, timeout=30,
+            capture_output=True,
+            timeout=30,
         )
         if r.returncode == 0 and tmp.exists() and tmp.stat().st_size > 0:
             return str(tmp)
@@ -339,16 +350,23 @@ def _analyze_claude_cli(
     # Convert HEIC and large files to small JPEG (Claude Read tool 256KB limit)
     ready_path = _prepare_image_for_cli(image_path)
 
-    prompt = (
-        f"Read the image at: {ready_path}\n\n"
-        + _vision_prompt(image_path, location_hint, post_context)
-    )
+    prompt = f"Read the image at: {ready_path}\n\n" + _vision_prompt(image_path, location_hint, post_context)
 
     result = subprocess.run(
-        [claude_bin, "--print", "--allowedTools", "Read", "--dangerously-skip-permissions",
-         "--model", "claude-haiku-4-5-20251001"],
-        input=prompt, text=True, check=False,
-        capture_output=True, timeout=120,
+        [
+            claude_bin,
+            "--print",
+            "--allowedTools",
+            "Read",
+            "--dangerously-skip-permissions",
+            "--model",
+            "claude-haiku-4-5-20251001",
+        ],
+        input=prompt,
+        text=True,
+        check=False,
+        capture_output=True,
+        timeout=120,
     )
     output = _strip_ansi((result.stdout or "").strip())
     stderr = _strip_ansi((result.stderr or "").strip())
@@ -375,8 +393,7 @@ def _pick_lm_studio_vision_model(models: list) -> str:
             if check(model["id"].lower()):
                 return model["id"]
     raise RuntimeError(
-        "LM Studio'da gorsel analiz destekleyen model bulunamadi. "
-        "qwen2.5-vl-7b-instruct modelini yukleyin."
+        "LM Studio'da gorsel analiz destekleyen model bulunamadi. " "qwen2.5-vl-7b-instruct modelini yukleyin."
     )
 
 
@@ -430,54 +447,45 @@ def _analyze_lm_studio(
     payload = {
         "model": model_id,
         "messages": [
-            {
-                "role": "system",
-                "content": system_msg
-            },
+            {"role": "system", "content": system_msg},
             {
                 "role": "user",
                 "content": [
                     {"type": "text", "text": prompt},
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:{b64_mime};base64,{b64_data}"
-                        }
-                    }
-                ]
-            }
+                    {"type": "image_url", "image_url": {"url": f"data:{b64_mime};base64,{b64_data}"}},
+                ],
+            },
         ],
         "temperature": 0.3,
-        "max_tokens": 800
+        "max_tokens": 800,
     }
 
     req = urllib.request.Request(
-        url_chat,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"}
+        url_chat, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"}
     )
-    
+
     try:
         with urllib.request.urlopen(req, timeout=180) as resp:
             data = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
-        err_body = e.read().decode('utf-8')
+        err_body = e.read().decode("utf-8")
         # If model doesn't support images, skip gracefully
         if "does not support image" in err_body or e.code == 400:
             raise RuntimeError(f"LM Studio model does not support images: {err_body[:200]}")
         raise RuntimeError(f"LM Studio API Error: {e.code} - {err_body[:200]}")
     except Exception as e:
         raise RuntimeError(f"LM Studio API Connection Error: {e}")
-        
+
     choice = data.get("choices", [{}])[0].get("message", {}).get("content", "")
     output = _strip_ansi(choice.strip())
     if not output:
         raise RuntimeError("LM Studio returned an empty response")
-        
+
     return _parse_json_from_text(output)
 
 
 # ── Main chain ────────────────────────────────────────────────────────────────
+
 
 def analyze_image_vision_chain(
     image_path: str,
@@ -534,17 +542,14 @@ def analyze_image_vision_chain(
     except Exception as exc:
         errors.append(f"claude_cli: {exc}")
 
-    raise RuntimeError(
-        "Görsel analizi başarısız — tüm kaynaklar denendi:\n"
-        + "\n".join(f"  • {e}" for e in errors)
-    )
+    raise RuntimeError("Görsel analizi başarısız — tüm kaynaklar denendi:\n" + "\n".join(f"  • {e}" for e in errors))
 
 
 def has_any_vision_source() -> bool:
     """Is at least one vision source available?"""
     if _lm_studio_has_vision_model():
         return True
-        
+
     if any(_gemini_key_available(key) for key in _gemini_api_keys()):
         return True
     if env_str("OPENAI_API_KEY"):
@@ -584,13 +589,13 @@ def download_icloud_photo(uuid: str, dest_dir: str | None = None) -> str:
     py311 = shutil.which("python3.11") or "python3.11"
     result = _sp.run(
         [py311, "-c", script, str(uuid), str(dest)],
-        capture_output=True, text=True, timeout=360,
+        capture_output=True,
+        text=True,
+        timeout=360,
     )
     path = result.stdout.strip()
     if result.returncode != 0 or not path:
-        raise RuntimeError(
-            f"iCloud download failed (uuid={uuid}): {result.stderr[-300:]}"
-        )
+        raise RuntimeError(f"iCloud download failed (uuid={uuid}): {result.stderr[-300:]}")
     return path
 
 

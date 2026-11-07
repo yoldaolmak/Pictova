@@ -142,15 +142,9 @@ def save_post_media_manifest(
     """Merge a successful attach into an atomic, reconstructable manifest."""
     existing = load_post_media_manifest(site, post_id) or {}
     existing_items = [
-        normalized
-        for raw in existing.get("media_items", [])
-        if (normalized := _normalize_item(raw)) is not None
+        normalized for raw in existing.get("media_items", []) if (normalized := _normalize_item(raw)) is not None
     ]
-    incoming_items = [
-        normalized
-        for raw in media_items
-        if (normalized := _normalize_item(raw)) is not None
-    ]
+    incoming_items = [normalized for raw in media_items if (normalized := _normalize_item(raw)) is not None]
 
     # The unanchored auto-media region is replaceable, not append-only.
     if any(not item["heading"] for item in incoming_items):
