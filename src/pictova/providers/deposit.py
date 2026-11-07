@@ -331,14 +331,23 @@ def download(asset_id: str, session_id: str, dest_dir: Optional[str] = None) -> 
     out_dir = Path(dest_dir) if dest_dir else _DEFAULT_CACHE_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
     dest = out_dir / f"deposit_{asset_id}.jpg"
-    if dest.exists() and dest.stat().st_size > 0:
-        return str(dest)
+    if dest.exists():
+        cached_size = dest.stat().st_size
+        if cached_size > _MAX_LICENSED_IMAGE_BYTES:
+            raise ValueError("Cached DepositPhotos image exceeds the maximum image size")
+        if cached_size > 0:
+            return str(dest)
 
     # Recover a licensed file left by an interrupted pre-cache run. This keeps
     # retries idempotent and avoids spending another DepositPhotos credit.
     temp_root = Path(tempfile.gettempdir())
     for recovered in temp_root.glob(f"pictova_dep_*/deposit_{asset_id}.jpg"):
-        if recovered.is_file() and recovered.stat().st_size > 0:
+        if recovered.is_file():
+            recovered_size = recovered.stat().st_size
+            if recovered_size > _MAX_LICENSED_IMAGE_BYTES:
+                raise ValueError("Recovered DepositPhotos image exceeds the maximum image size")
+            if recovered_size == 0:
+                continue
             shutil.copy2(recovered, dest)
             return str(dest)
 
