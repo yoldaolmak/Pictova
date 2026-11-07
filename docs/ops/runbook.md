@@ -85,7 +85,8 @@ These commands update local index state, not WordPress. Follow the
 - No candidate for a specific heading: inspect the heading name and source
   title; the correct action may be to leave it empty.
 - A provider error: verify configuration and connectivity; do not rerun a
-  licensed download blindly or weaken matching.
+  licensed download blindly or weaken matching. DepositPhotos images exceeding
+64 MiB are rejected, including cached and partially downloaded files.
 - Local images rejected during `process`: inspect the quality report and
   original file, without bypassing rejection.
 - WordPress access denied: verify the selected site profile and its
