@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
+- Limit DepositPhotos licensed image transfers and resumed/cached files to 64 MiB, and reject unsafe asset IDs before constructing paths or licensing requests.
 - Reject managed-media repair or reset when its Gutenberg gallery contains untracked images or editorial gallery captions; prevent media ID prefix collisions (e.g. 12 vs 123).
 - Require section-specific image anchors rather than accepting the article's broad destination for a different H2/H3.
 - Preserve the original named heading constraint when an optional model broadens an unsuccessful search.
