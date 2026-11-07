@@ -9,10 +9,9 @@ Parses user command and orchestrates full pipeline
 import re
 import json
 import os
-import math
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Dict, Optional
 from datetime import datetime
 
 from src.core.media_quality import normalize_text, validate_metadata, validate_processed_asset
@@ -26,7 +25,7 @@ from src.core.media_publish import (
     ensure_publish_path,
     ensure_unique_slug,
 )
-from src.core.database import VisualMemoryComponent, VisualMemoryConfig, query_asset_from_visual_memory
+from src.core.database import VisualMemoryComponent, VisualMemoryConfig, query_asset_from_visual_memory  # noqa: F401
 from src.core.processor import YOImageProcessor, get_vil_images
 from src.core.metadata_generator import (
     YOMetadataGenerator,
@@ -34,11 +33,11 @@ from src.core.metadata_generator import (
 )
 from src.services.wordpress import fetch_post_context, upload_images_batch
 from src.pictova.engine.search import (
-    CONTENT_FILTER_SQL,
+    CONTENT_FILTER_SQL,  # noqa: F401 — compatibility re-export
     _FILTER_ALIASES,
     _ascii_normalize,
-    _hero_score,
-    load_vil_images_from_index,
+    _hero_score,  # noqa: F401 — compatibility re-export
+    load_vil_images_from_index,  # noqa: F401 — compatibility re-export
     load_vil_images_from_index_for_post,
     search_semantic_assets,
 )
