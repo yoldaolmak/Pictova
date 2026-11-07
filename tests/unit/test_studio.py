@@ -47,10 +47,9 @@ def _plan_result(files):
     return {
         "status": "success",
         "selection": {
-            "source": "auto", "files": files,
-            "heading_assignments": {
-                file: dict(headings[index % len(headings)]) for index, file in enumerate(files)
-            },
+            "source": "auto",
+            "files": files,
+            "heading_assignments": {file: dict(headings[index % len(headings)]) for index, file in enumerate(files)},
             "warnings": [],
         },
         "warnings": [],
@@ -93,20 +92,21 @@ def test_url_resolution_accepts_configured_wp_permalink_only(monkeypatch):
     assert call.kwargs["allow_redirects"] is False
 
 
-@pytest.mark.parametrize("url", [
-    "https://evil.example/kapadokya.html",
-    "http://yoldaolmak.com/kapadokya.html",
-    "https://yoldaolmak.com.evil.example/kapadokya.html",
-    "https://u:p@yoldaolmak.com/kapadokya.html",
-    "https://yoldaolmak.com:8443/kapadokya.html",
-    "https://yoldaolmak.com/wp-json/wp/v2/posts",
-    "https://yoldaolmak.com/../",
-    "file:///home/user/photo.jpg",
-])
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://evil.example/kapadokya.html",
+        "http://yoldaolmak.com/kapadokya.html",
+        "https://yoldaolmak.com.evil.example/kapadokya.html",
+        "https://u:p@yoldaolmak.com/kapadokya.html",
+        "https://yoldaolmak.com:8443/kapadokya.html",
+        "https://yoldaolmak.com/wp-json/wp/v2/posts",
+        "https://yoldaolmak.com/../",
+        "file:///home/user/photo.jpg",
+    ],
+)
 def test_studio_refuses_unconfigured_url_before_network(monkeypatch, url):
-    monkeypatch.setattr(studio.YOWordPressUploader, "SITE_ENDPOINTS", {
-        "yoldaolmak": {"url": "https://yoldaolmak.com"}
-    })
+    monkeypatch.setattr(studio.YOWordPressUploader, "SITE_ENDPOINTS", {"yoldaolmak": {"url": "https://yoldaolmak.com"}})
     with patch.object(studio.YOWordPressUploader, "__init__", side_effect=AssertionError("No WP network")):
         with pytest.raises(studio.StudioError):
             studio._resolve_wordpress_url(url)
@@ -146,9 +146,15 @@ def test_studio_approves_only_checked_images_and_preserves_heading_identity(tmp_
     assert accepted["selected_count"] == 1 and accepted["status"] == "accepted"
     assert jobs[0][0] == "studio_attach"
     assert jobs[0][1] == {"site": "yoldaolmak", "post_id": 71, "selected_count": 1}
-    monkeypatch.setattr(studio, "prepare_attach_request", lambda **kwargs: (
-        dict(kwargs), _ctx(), {"language": "tr", "people_first": False},
-    ))
+    monkeypatch.setattr(
+        studio,
+        "prepare_attach_request",
+        lambda **kwargs: (
+            dict(kwargs),
+            _ctx(),
+            {"language": "tr", "people_first": False},
+        ),
+    )
     monkeypatch.setattr(studio, "validate_attach_request", lambda **kwargs: None)
     monkeypatch.setattr(studio, "_finish_attach_job", lambda result: result)
 
@@ -176,9 +182,7 @@ def test_file_change_after_review_blocks_approved_selection(tmp_path, monkeypatc
         store.preview(plan["plan_id"], entry["id"])
 
     jobs = []
-    monkeypatch.setattr(studio.job_registry, "create_job", lambda **kwargs: (
-        jobs.append(kwargs) or {"job_id": "a"}
-    ))
+    monkeypatch.setattr(studio.job_registry, "create_job", lambda **kwargs: (jobs.append(kwargs) or {"job_id": "a"}))
     store.approve(plan["plan_id"], [entry["id"]])
     monkeypatch.setattr(studio, "prepare_attach_request", lambda **kwargs: (dict(kwargs), _ctx(), {}))
     monkeypatch.setattr(studio, "validate_attach_request", lambda **kwargs: None)
@@ -206,9 +210,11 @@ def test_unlisted_duplicate_or_empty_candidate_ids_cannot_trigger_attach(tmp_pat
 
 def test_paid_preview_requires_distinct_license_consent(tmp_path, monkeypatch):
     preview = "https://preview.example.test/exact-stock.jpg"
-    cache = {("Uchisar Castle", 20): [
-        {"id": "53148", "title": "Uchisar Castle", "preview_url": preview},
-    ]}
+    cache = {
+        ("Uchisar Castle", 20): [
+            {"id": "53148", "title": "Uchisar Castle", "preview_url": preview},
+        ]
+    }
     from src.pictova.engine import selector
 
     monkeypatch.setattr(selector, "_DEPOSIT_DISCOVERY_CACHE", cache)
@@ -220,9 +226,9 @@ def test_paid_preview_requires_distinct_license_consent(tmp_path, monkeypatch):
         store.approve(plan["plan_id"], [asset["id"]])
 
     jobs = []
-    monkeypatch.setattr(studio.job_registry, "create_job", lambda **kwargs: (
-        jobs.append(kwargs) or {"job_id": "paid-job"}
-    ))
+    monkeypatch.setattr(
+        studio.job_registry, "create_job", lambda **kwargs: (jobs.append(kwargs) or {"job_id": "paid-job"})
+    )
     assert store.approve(plan["plan_id"], [asset["id"]], confirm_paid=True)["status"] == "accepted"
 
     monkeypatch.setattr(studio, "prepare_attach_request", lambda **kwargs: (dict(kwargs), _ctx(), {}))
@@ -253,12 +259,20 @@ def test_paid_preview_requires_distinct_license_consent(tmp_path, monkeypatch):
 
 def test_post_changed_after_preview_rejected_before_paid_selection(monkeypatch):
     callback = MagicMock(side_effect=AssertionError("No paid download on changed post"))
-    monkeypatch.setattr(engine, "fetch_post_context", lambda post_id, site: {
-        **_ctx(), "modified": "2026-11-07T15:30:00",
-    })
+    monkeypatch.setattr(
+        engine,
+        "fetch_post_context",
+        lambda post_id, site: {
+            **_ctx(),
+            "modified": "2026-11-07T15:30:00",
+        },
+    )
     result = engine._execute_native_attach_locked(
-        site="yoldaolmak", request={"post_id": 71, "count": 1},
-        post_context=_ctx(), constraints={}, selection_loader=callback,
+        site="yoldaolmak",
+        request={"post_id": 71, "count": 1},
+        post_context=_ctx(),
+        constraints={},
+        selection_loader=callback,
         expected_post_digest=studio._fingerprint(_ctx()),
     )
     assert result["status"] == "failed"
@@ -284,9 +298,16 @@ def test_http_studio_static_host_and_origin_guards(monkeypatch):
             urlopen(bad_host, timeout=3)
         assert error.value.code == 400
 
-        monkeypatch.setattr(http.studio_plans, "plan", lambda url, count: {
-            "status": "success", "plan_id": "no-secret", "post": {"title": "Test"}, "candidates": []
-        })
+        monkeypatch.setattr(
+            http.studio_plans,
+            "plan",
+            lambda url, count: {
+                "status": "success",
+                "plan_id": "no-secret",
+                "post": {"title": "Test"},
+                "candidates": [],
+            },
+        )
 
         def post(origin=None, token=TEST_TOKEN):
             headers = {"Content-Type": "application/json", "Authorization": "Bearer " + token}
@@ -295,7 +316,8 @@ def test_http_studio_static_host_and_origin_guards(monkeypatch):
             req = Request(
                 address + "/studio/plan",
                 data=json.dumps({"url": "https://yoldaolmak.com/a.html", "count": 1}).encode(),
-                headers=headers, method="POST",
+                headers=headers,
+                method="POST",
             )
             try:
                 with urlopen(req, timeout=3) as result:
@@ -310,6 +332,7 @@ def test_http_studio_static_host_and_origin_guards(monkeypatch):
         srv.shutdown()
         srv.server_close()
         thread.join(timeout=3)
+
 
 def test_failed_job_enqueue_restores_studio_plan(tmp_path, monkeypatch):
     local_photo = _photo(tmp_path, "uchisar.jpg")

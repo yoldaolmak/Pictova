@@ -719,13 +719,9 @@ def _execute_native_attach_locked(
     processed = process_selected_images(_resolved_files)
     processed_images = processed.get("processed_images", [])
     processing_failures = list(processed.get("failed_images") or [])
-    selection_warnings.extend(
-        f"{item.get('file')}: {item.get('reason')}" for item in processing_failures
-    )
+    selection_warnings.extend(f"{item.get('file')}: {item.get('reason')}" for item in processing_failures)
     if processed.get("panoramic_images"):
-        selection_warnings.append(
-            f"{len(processed['panoramic_images'])} panoramic image(s) excluded from publishing"
-        )
+        selection_warnings.append(f"{len(processed['panoramic_images'])} panoramic image(s) excluded from publishing")
     selector_assignments = dict(selection.get("heading_assignments", {}))
     approved_assignments = request.get("approved_heading_assignments", {})
     if isinstance(approved_assignments, dict):
@@ -808,9 +804,12 @@ def _execute_native_attach_locked(
         "uploaded": published.get("uploaded", []),
         "failed_uploads": published.get("failed", []),
         "constraints": constraints,
-        "warnings": selection_warnings + metadata_warnings + (
+        "warnings": selection_warnings
+        + metadata_warnings
+        + (
             [f"WordPress publishing not fully verified ({publish_reason}); inspect post and manifest"]
-            if status != "success" else []
+            if status != "success"
+            else []
         ),
         "duration_ms": duration_ms,
         "raw": {

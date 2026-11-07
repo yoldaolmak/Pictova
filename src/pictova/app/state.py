@@ -25,9 +25,15 @@ _MAX_JOBS = 256
 _RETENTION = timedelta(days=7)
 _MAX_RECEIPT_BYTES = 512 * 1024
 _RESULT_FIELDS = (
-    "status", "inserted_blocks", "uploaded_media_ids", "warnings",
-    "publish_reason", "needs_reconciliation", "receipt_path",
-    "content_update", "rollback",
+    "status",
+    "inserted_blocks",
+    "uploaded_media_ids",
+    "warnings",
+    "publish_reason",
+    "needs_reconciliation",
+    "receipt_path",
+    "content_update",
+    "rollback",
 )
 _PAYLOAD_FIELDS = ("site", "post_id", "selected_count", "source", "count", "engine")
 
@@ -39,8 +45,7 @@ def _utc_now() -> str:
 def _compact_job(job: Dict[str, Any]) -> Dict[str, Any]:
     result = job.get("result")
     small_result = (
-        {field: result[field] for field in _RESULT_FIELDS if field in result}
-        if isinstance(result, dict) else None
+        {field: result[field] for field in _RESULT_FIELDS if field in result} if isinstance(result, dict) else None
     )
     return {
         "job_id": job["job_id"],
@@ -58,9 +63,11 @@ class JobRegistry:
     def __init__(self, *, directory: Path | None = None) -> None:
         self._lock = threading.RLock()
         self._jobs: Dict[str, Dict[str, Any]] = {}
-        self._directory = Path(directory) if directory is not None else Path(
-            env_str("PICTOVA_JOB_DIR") or PROJECT_ROOT / "data" / "jobs"
-        ).expanduser()
+        self._directory = (
+            Path(directory)
+            if directory is not None
+            else Path(env_str("PICTOVA_JOB_DIR") or PROJECT_ROOT / "data" / "jobs").expanduser()
+        )
         self._restore()
 
     def _persist(self, job: Dict[str, Any]) -> None:
@@ -135,8 +142,7 @@ class JobRegistry:
         }
         with self._lock:
             oldest = (
-                min(self._jobs.values(), key=lambda item: item["created_at"])
-                if len(self._jobs) >= _MAX_JOBS else None
+                min(self._jobs.values(), key=lambda item: item["created_at"]) if len(self._jobs) >= _MAX_JOBS else None
             )
             # A failed new write must not erase an older durable receipt.
             self._persist(job)

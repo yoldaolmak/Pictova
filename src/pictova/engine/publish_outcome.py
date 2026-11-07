@@ -13,9 +13,7 @@ from typing import Any, Mapping
 _UNCERTAIN_POST_WRITE = {"post_update_verification_failed", "media_manifest_write_failed"}
 
 
-def classify_publish_result(
-    published: Mapping[str, Any], *, warnings: bool = False
-) -> tuple[str, str, bool]:
+def classify_publish_result(published: Mapping[str, Any], *, warnings: bool = False) -> tuple[str, str, bool]:
     """Return (status, reason, needs_reconciliation).
 
     success: post edit is verified, or exact already-managed assets were found;

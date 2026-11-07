@@ -199,9 +199,7 @@ def assess_post_media(manifest: Dict[str, Any], content_raw: str) -> Dict[str, A
     missing = [media_id for media_id in expected if media_id not in by_id]
     duplicate = [media_id for media_id in expected if len(by_id.get(media_id, [])) > 1]
     expected_items = {
-        int(item.get("media_id") or 0): item
-        for item in manifest.get("media_items", [])
-        if item.get("media_id")
+        int(item.get("media_id") or 0): item for item in manifest.get("media_items", []) if item.get("media_id")
     }
     misplaced = []
     mismatched_url = []
@@ -214,7 +212,8 @@ def assess_post_media(manifest: Dict[str, Any], content_raw: str) -> Dict[str, A
         if heading:
             actual_heading = str(actual.get("heading") or "").strip()
             if (actual_heading.casefold(), actual.get("heading_level")) != (
-                heading.casefold(), int(before.get("heading_level") or 0)
+                heading.casefold(),
+                int(before.get("heading_level") or 0),
             ):
                 misplaced.append(media_id)
         expected_url = str(before.get("url") or "").strip()

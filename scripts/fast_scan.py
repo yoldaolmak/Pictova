@@ -30,13 +30,39 @@ from src.utils.config import env_str, get_visual_memory_db_path
 DB_PATH = get_visual_memory_db_path()
 DEFAULT_DAILY_LIMIT = 1350
 _SCENE_WORDS = (
-    "coast", "beach", "mountain", "forest", "city", "urban", "rural",
-    "sea", "lake", "river", "valley", "castle", "mosque", "church",
-    "market", "bazaar", "harbor", "port", "ruins", "landscape", "nature",
+    "coast",
+    "beach",
+    "mountain",
+    "forest",
+    "city",
+    "urban",
+    "rural",
+    "sea",
+    "lake",
+    "river",
+    "valley",
+    "castle",
+    "mosque",
+    "church",
+    "market",
+    "bazaar",
+    "harbor",
+    "port",
+    "ruins",
+    "landscape",
+    "nature",
 )
 _ACTIVITY_WORDS = (
-    "walking", "hiking", "swimming", "sailing", "photography", "tourism",
-    "travel", "dining", "shopping", "sightseeing",
+    "walking",
+    "hiking",
+    "swimming",
+    "sailing",
+    "photography",
+    "tourism",
+    "travel",
+    "dining",
+    "shopping",
+    "sightseeing",
 )
 
 _lock = threading.Lock()
@@ -203,9 +229,7 @@ def _record_error(con_path: str, source_id: str, error: str, *, lease: str | Non
         print(f"  ✗ {source_id}: {error[:180]}", file=sys.stderr)
 
 
-def _worker(
-    rows: list[tuple[Any, ...]], db_path: str, worker_id: int, retry_errors: bool = False
-) -> None:
+def _worker(rows: list[tuple[Any, ...]], db_path: str, worker_id: int, retry_errors: bool = False) -> None:
     global _done
     for row in rows:
         source_id, source_path, city, state, country, raw_labels = row
@@ -257,7 +281,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workers", type=int, default=2)
     parser.add_argument(
-        "--retry-errors", action="store_true",
+        "--retry-errors",
+        action="store_true",
         help="Also retry assets previously marked error (never reprocess done/skipped)",
     )
     parser.add_argument("--limit", type=int, default=0, help="Bu çalıştırmadaki en fazla kayıt; 0=limit yok")

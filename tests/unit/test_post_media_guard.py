@@ -38,12 +38,12 @@ def test_manifest_round_trip_merges_and_detects_drift(tmp_path, monkeypatch):
     first_content = (
         '<h2>Koy</h2><!-- wp:image {"id":11} -->'
         '<figure><img src="https://example.com/11.webp" class="wp-image-11"/></figure>'
-        '<!-- /wp:image -->'
+        "<!-- /wp:image -->"
     )
     second_content = first_content + (
         '<h2>Fener</h2><!-- wp:image {"id":12} -->'
         '<figure><img src="https://example.com/12.webp" class="wp-image-12"/></figure>'
-        '<!-- /wp:image -->'
+        "<!-- /wp:image -->"
     )
 
     save_post_media_manifest(
@@ -112,12 +112,12 @@ def test_guard_repairs_manifest_drift(tmp_path, monkeypatch):
     first = (
         '<h2>Koy</h2><!-- wp:image {"id":1} -->'
         '<figure><img src="https://example.com/1.webp" class="wp-image-1"/></figure>'
-        '<!-- /wp:image -->'
+        "<!-- /wp:image -->"
     )
     second = (
         '<h2>Fener</h2><!-- wp:image {"id":2} -->'
         '<figure><img src="https://example.com/2.webp" class="wp-image-2"/></figure>'
-        '<!-- /wp:image -->'
+        "<!-- /wp:image -->"
     )
     healthy_content = first + second
     drifted_content = first
@@ -133,10 +133,12 @@ def test_guard_repairs_manifest_drift(tmp_path, monkeypatch):
 
     uploader = object.__new__(YOWordPressUploader)
     uploader.site = "yoldaolmak"
-    uploader.fetch_post_context = MagicMock(side_effect=[
-        {"content_raw": drifted_content},
-        {"content_raw": healthy_content},
-    ])
+    uploader.fetch_post_context = MagicMock(
+        side_effect=[
+            {"content_raw": drifted_content},
+            {"content_raw": healthy_content},
+        ]
+    )
     uploader.append_media_to_post_content = MagicMock(return_value={"success": True})
 
     result = uploader.guard_post_media(99, repair=True)
@@ -153,10 +155,12 @@ def test_commit_aborts_when_post_changed_concurrently():
     uploader.site = "yoldaolmak"
     uploader.base_url = "https://example.com"
     uploader.session = MagicMock()
-    uploader.fetch_post_context = MagicMock(return_value={
-        "content_raw": "new editor content",
-        "modified": "2026-06-28T16:10:00",
-    })
+    uploader.fetch_post_context = MagicMock(
+        return_value={
+            "content_raw": "new editor content",
+            "modified": "2026-06-28T16:10:00",
+        }
+    )
 
     result = uploader._commit_post_content(
         post_id=99,
