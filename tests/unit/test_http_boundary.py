@@ -44,7 +44,7 @@ def test_json_input_has_size_encoding_and_content_type_bounds():
     assert body('{"post_id": 7}', content_type="application/json; charset=utf-8") == ({"post_id": 7}, None)
     assert body('{"post_id": 7}', content_type="text/plain")[1] == "content-type must be application/json"
     assert body('{"post_id": 7}', length=-1)[1] == "invalid content-length"
-    assert body(b"\\xff")[1] == "invalid json body"
+    assert body(bytes([255]))[1] == "invalid json body"
     assert body('{"post_id": 7}', transfer="chunked")[1] == "transfer-encoding is not supported"
     assert body(b"", length=http.MAX_BODY_BYTES + 1)[1] == "request body too large"
 
