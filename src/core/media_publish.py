@@ -312,7 +312,6 @@ SCENE_REMAP = {
     "sunset": "gunbatimi",
     "sunrise": "gundogumu",
     "night": "gece",
-    "market": "pazar",
     "temple": "tapinak",
     "palace": "saray",
     "castle": "kale",
@@ -628,7 +627,6 @@ def _extract_source_destination_tokens(source_metadata: Dict) -> list[str]:
 
 
 def _extract_source_destination_variants(source_metadata: Dict) -> list[str]:
-    description_text = str(source_metadata.get("description", ""))
     variants: list[str] = []
     seen: set[str] = set()
 
