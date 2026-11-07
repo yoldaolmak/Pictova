@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
+- Reject managed-media repair or reset when its Gutenberg gallery contains untracked images or editorial gallery captions; prevent media ID prefix collisions (e.g. 12 vs 123).
 - Require section-specific image anchors rather than accepting the article's broad destination for a different H2/H3.
 - Preserve the original named heading constraint when an optional model broadens an unsuccessful search.
 - Reject automatic heading placement for an explicit query when no relevant heading matches.

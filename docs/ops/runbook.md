@@ -39,7 +39,9 @@ pictova guard --site yoldaolmak --post 265713
 ```
 
 `guard --repair`, `--reposition`, `--adopt`, and `--reset` are separate
-write operations; verify ownership and back up the post before using them.
+write operations; verify ownership and back up the post before using them. If a Pictova image
+shares a Gutenberg gallery with an editor-owned image or an untracked caption,
+reset/reposition refuses the operation rather than removing the shared block.
 
 ## Verify the local installation
 
