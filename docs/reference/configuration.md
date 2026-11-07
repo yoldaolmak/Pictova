@@ -40,10 +40,14 @@ fails closed rather than fabricating descriptive metadata.
 
 ## HTTP Server
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PICTOVA_HOST` | `127.0.0.1` | Default bind address for `pictova serve` |
-| `PICTOVA_PORT` | `8040` | Default port |
+The HTTP endpoint is opt-in, authenticated, and loopback-only. The CLI's
+`serve --host` (default `127.0.0.1`) and `--port` (default `8040`)
+options control binding; `PICTOVA_HOST` / `PICTOVA_PORT` do not override
+these CLI defaults.
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `PICTOVA_HTTP_TOKEN` | Yes for `serve` | Private Bearer token, at least 32 ASCII characters. Generate with `secrets.token_urlsafe(32)`. |
 
 ## Defaults
 
@@ -67,6 +71,6 @@ YO_VISUAL_MEMORY_DB=/Users/yoldaolmak/Projects/Pictova/data/visual_memory.db
 GEMINI_API_KEY=...
 OPENAI_API_KEY=...
 
-# Server
-PICTOVA_PORT=8040
+# Only needed for authenticated HTTP operation (prefer exporting in your shell)
+# PICTOVA_HTTP_TOKEN=<generate-random-secret>
 ```
