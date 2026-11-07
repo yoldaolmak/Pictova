@@ -15,7 +15,8 @@ All code and documentation must use **Pictova** as the product name, `pictova` a
 1. Update `CHANGELOG.md` under `[Unreleased]` when the change is user-visible
 2. Write or update tests in `tests/`
 3. Run `python3.10 -m pytest -q` — all must pass
-4. Update relevant `docs/` page
+4. Update relevant `docs/` page; remove contradictory older claims
+5. Demonstrate both a plausible match and a wrong-image rejection for selection changes
 
 ## Adding an Image Source
 
@@ -25,6 +26,11 @@ All code and documentation must use **Pictova** as the product name, `pictova` a
 4. Update `docs/guides/adding-sources.md` and `docs/concepts/sources.md`
 
 ## Architecture Rules
+
+- Optimize the real selection → processing → WordPress outcome, not test counts
+- Do not use broad location context or model-generated queries as proof of a named heading
+- Do not add place-specific equivalence rules that silently assert identity
+- Preserve unmanaged WordPress content and reject ambiguous writes
 
 - App layer (`src/pictova/app/`) contains no selection or publishing policy
 - Native engine and providers own the supported production path
