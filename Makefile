@@ -6,11 +6,10 @@ help:
 	@printf 'Pictova: install | install-dev | test | test-unit | lint | format | studio | run POST_ID=<id> | clean\n'
 
 install:
-	python -m pip install -r requirements.txt
 	python -m pip install -e .
 
-install-dev: install
-	python -m pip install flake8==7.3.0 black==25.1.0
+install-dev:
+	python -m pip install -e '.[dev]'
 
 test:
 	python -m pytest tests/ -q
