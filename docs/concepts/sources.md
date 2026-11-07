@@ -27,7 +27,9 @@ If a source cannot provide an exact candidate, that slot stays empty and the
 receipt reports why.
 
 The native heading-aware `auto` / `semantic` routes enforce section identity;
-DepositPhotos checks the provider title before a licensed download. Explicit
+DepositPhotos checks the provider title before a licensed download. Cached or
+resumed licensed images are capped at 64 MiB, and nonnumeric asset IDs are
+rejected before any filesystem or licensing operation. Explicit
 `local`, `vil`, and `unsplash` modes are not interchangeable with that gate:
 a caller-provided path or free-provider search ranking is not independent
 identity evidence. Use a reviewed plan for direct source modes.

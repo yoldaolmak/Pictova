@@ -59,6 +59,7 @@ _DEFAULT_CACHE_DIR = Path(__file__).resolve().parents[3] / "data" / "deposit_cac
 # zaman aşımını geçebiliyordu. Küçük parça, aynı toplam kaliteyi korurken
 # aktarımın düzenli ilerlemesini ve kaldığı yerden sürmesini sağlar.
 _DOWNLOAD_CHUNK_BYTES = 128 * 1024
+_MAX_LICENSED_IMAGE_BYTES = 64 * 1024 * 1024
 _DOWNLOAD_DEADLINE_SECONDS = 120
 _SESSION_ID: Optional[str] = None
 
@@ -282,6 +283,8 @@ def _stream_download(download_link: str, temp_dest: Path) -> None:
     for attempt in range(attempts):
         started = time.monotonic()
         resume_at = temp_dest.stat().st_size if temp_dest.exists() else 0
+        if resume_at > _MAX_LICENSED_IMAGE_BYTES:
+            raise ValueError("Saved DepositPhotos transfer exceeds the maximum image size")
         headers = {"User-Agent": "Mozilla/5.0"}
         if resume_at:
             headers["Range"] = f"bytes={resume_at}-"
@@ -292,17 +295,22 @@ def _stream_download(download_link: str, temp_dest: Path) -> None:
                 # Range'i yok sayarsa bozuk bir birleştirme üretmemek için baştan yazılır.
                 append = resume_at > 0 and _response_status(response) == 206
                 with temp_dest.open("ab" if append else "wb") as output:
+                    total_bytes = resume_at if append else 0
                     while True:
                         if time.monotonic() - started > _DOWNLOAD_DEADLINE_SECONDS:
                             raise TimeoutError(f"DepositPhotos file transfer exceeded {_DOWNLOAD_DEADLINE_SECONDS}s")
                         chunk = response.read(_DOWNLOAD_CHUNK_BYTES)
                         if not chunk:
                             break
+                        if total_bytes + len(chunk) > _MAX_LICENSED_IMAGE_BYTES:
+                            raise ValueError("DepositPhotos image exceeded the maximum download size")
                         output.write(chunk)
+                        total_bytes += len(chunk)
             if temp_dest.stat().st_size == 0:
                 raise RuntimeError("DepositPhotos boş dosya döndürdü")
             return
-        except urllib.error.HTTPError:
+        except (urllib.error.HTTPError, ValueError):
+            # Invalid image size or expired URL cannot be fixed by retries.
             # Süresi dolmuş bir kaydedilmiş bağlantı üst katmanda tek seferde
             # yenilenir; burada tekrar denemek yalnızca aynı başarısız isteği
             # çoğaltır.
@@ -316,18 +324,30 @@ def _stream_download(download_link: str, temp_dest: Path) -> None:
 
 
 def download(asset_id: str, session_id: str, dest_dir: Optional[str] = None) -> str:
-    """Lisanslı XL dosyayı güvenli biçimde indirir ve yarım aktarımı sürdürür."""
+    """Download one numeric licensed asset, with bounded resumable transfer."""
+    asset_id = str(asset_id)
+    if not asset_id.isascii() or not asset_id.isdecimal() or len(asset_id) > 20:
+        raise ValueError("DepositPhotos asset ID must be a bounded decimal identifier")
     out_dir = Path(dest_dir) if dest_dir else _DEFAULT_CACHE_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
     dest = out_dir / f"deposit_{asset_id}.jpg"
-    if dest.exists() and dest.stat().st_size > 0:
-        return str(dest)
+    if dest.exists():
+        cached_size = dest.stat().st_size
+        if cached_size > _MAX_LICENSED_IMAGE_BYTES:
+            raise ValueError("Cached DepositPhotos image exceeds the maximum image size")
+        if cached_size > 0:
+            return str(dest)
 
     # Recover a licensed file left by an interrupted pre-cache run. This keeps
     # retries idempotent and avoids spending another DepositPhotos credit.
     temp_root = Path(tempfile.gettempdir())
     for recovered in temp_root.glob(f"pictova_dep_*/deposit_{asset_id}.jpg"):
-        if recovered.is_file() and recovered.stat().st_size > 0:
+        if recovered.is_file():
+            recovered_size = recovered.stat().st_size
+            if recovered_size > _MAX_LICENSED_IMAGE_BYTES:
+                raise ValueError("Recovered DepositPhotos image exceeds the maximum image size")
+            if recovered_size == 0:
+                continue
             shutil.copy2(recovered, dest)
             return str(dest)
 
