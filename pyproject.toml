@@ -21,3 +21,6 @@ py-modules = ["yo_unsplash", "yo_adaptive_filter", "yo_yoldaolmak_filter"]
 
 [tool.setuptools.packages.find]
 where = ["."]
+
+[tool.setuptools.package-data]
+"src.pictova.app" = ["static/*.html", "static/*.css", "static/*.js"]
