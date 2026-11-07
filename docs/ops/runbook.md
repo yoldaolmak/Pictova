@@ -32,7 +32,9 @@ pictova guard --site yoldaolmak --post 265713
 - **No images:** Check exact heading matches, source configuration and `warnings`.
 - **Provider failure:** Check connectivity and credentials. Never repeat a licensed download blindly.
 - **Failed quality gate:** Review the original file and metadata; do not bypass the gate.
-- **WordPress failure:** Check the selected profile, application password and operation receipt. Inspect the post before retrying.
+- **WordPress failure:** Check the selected profile, application password, inserted-block count and operation receipt. An uploaded media ID is not proof of publication.
+- **Partial/interrupted job:** Inspect WordPress, managed-media manifest and local receipt before retrying. Partial is not success; interrupted jobs are never automatically resumed.
+- **Manifest drift:** Reposition or repair only managed image blocks after reviewing the affected headings and mixed-ownership galleries.
 
 ```bash
 python3 -m pytest -q
