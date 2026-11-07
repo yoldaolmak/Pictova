@@ -145,7 +145,7 @@ class StudioPlans:
     def _prune(self) -> None:
         now = time.monotonic()
         for key, plan in list(self._plans.items()):
-            if now > plan["expires"] or plan["used"]:
+            if plan.get("status") != "submitting" and (now > plan["expires"] or plan["used"]):
                 self._plans.pop(key, None)
 
     def plan(self, url: str, count: int = 4) -> Dict[str, Any]:
@@ -225,6 +225,7 @@ class StudioPlans:
             self._plans[plan_id] = {
                 "expires": time.monotonic() + _PLAN_LIFETIME_SECONDS,
                 "used": False,
+                "status": "available",
                 "site": site,
                 "post_id": post_id,
                 "digest": _fingerprint(context),
@@ -275,28 +276,44 @@ class StudioPlans:
             plan = self._plans.get(plan_id)
             if not plan:
                 raise StudioError("Plan süresi doldu veya kullanıldı")
+            if plan.get("status") != "available":
+                raise StudioError("Plan zaten uygulamaya alınıyor")
             if any(key not in plan["candidates"] or not plan["candidates"][key]["enabled"] for key in accepted):
                 raise StudioError("Onay listesi plandaki kullanılabilir görsellerle eşleşmiyor")
             chosen = [dict(plan["candidates"][key]) for key in accepted]
             if any("deposit_id" in item for item in chosen) and confirm_paid is not True:
                 raise StudioError("Lisanslı stok indirmesi için ayrıca onay gerekli")
-            plan["used"] = True
+            # Reserve atomically so concurrent approval requests cannot
+            # enqueue two paid publishing jobs for the same plan.
+            plan["status"] = "submitting"
+            work = {
+                "site": plan["site"],
+                "post_id": plan["post_id"],
+                "digest": plan["digest"],
+                "chosen": chosen,
+            }
 
-        work = {
-            "site": plan["site"],
-            "post_id": plan["post_id"],
-            "digest": plan["digest"],
-            "chosen": chosen,
-        }
-        job = job_registry.create_job(
-            kind="studio_attach",
-            payload={
-                "site": work["site"],
-                "post_id": work["post_id"],
-                "selected_count": len(chosen),
-            },
-            runner=lambda _payload: self._execute(work),
-        )
+        try:
+            job = job_registry.create_job(
+                kind="studio_attach",
+                payload={
+                    "site": work["site"],
+                    "post_id": work["post_id"],
+                    "selected_count": len(chosen),
+                },
+                runner=lambda _payload: self._execute(work),
+            )
+        except Exception as exc:
+            # JobRegistry guarantees that any create_job error happens
+            # before the runner starts. Return this plan to reviewable.
+            with self._lock:
+                if self._plans.get(plan_id) is plan:
+                    plan["status"] = "available"
+            raise StudioError("İş kuyruğa alınamadı; plan kullanılmadı") from exc
+
+        with self._lock:
+            plan["used"] = True
+            plan["status"] = "consumed"
         return {"status": "accepted", "job_id": job["job_id"], "selected_count": len(chosen)}
 
     @staticmethod
