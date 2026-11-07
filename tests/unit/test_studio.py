@@ -277,7 +277,7 @@ def test_http_studio_static_host_and_origin_guards(monkeypatch):
             data = page.read()
             assert page.status == 200
             assert b"PICTOVA" in data
-            assert b"Bearer" not in data
+            assert TEST_TOKEN.encode() not in data
             assert b"frame-ancestors 'none'" in page.headers["Content-Security-Policy"].encode()
         bad_host = Request(address + "/studio", headers={"Host": "attacker.example"})
         with pytest.raises(HTTPError) as error:
