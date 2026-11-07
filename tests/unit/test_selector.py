@@ -1114,7 +1114,6 @@ def test_compute_assigned_headings_prefers_earliest_main_headings():
     ]
 
 
-@pytest.mark.xfail(reason="Adım 2 (semantik katman) bekliyor: destinasyon/çapraz-dil sözlükleri kaldırıldı, yerine öğrenilmiş eşleşme gelecek", strict=True)
 def test_compute_assigned_headings_filters_unrelated_headings_for_explicit_query():
     from src.pictova.engine.attach import _compute_assigned_headings
 
@@ -1344,3 +1343,29 @@ def test_multiple_topic_anchors_require_two_independent_terms():
     )
     assert _matches_anchor_tokens({"topkapi"}, {"topkapi"})
     assert not _matches_anchor_tokens({"turkey"}, {"aladaglar", "turkey"})
+
+
+def test_explicit_image_query_without_any_matching_heading_does_not_invent_placement():
+    from src.pictova.engine.attach import _compute_assigned_headings
+
+    result = _compute_assigned_headings(
+        ["/local/asset.jpg"],
+        {"location_query": "passport border control"},
+        {
+            "available_headings": [
+                {"text": "Dönüş Bileti", "level": 2},
+                {"text": "Otel Rezervasyonu", "level": 2},
+            ],
+        },
+    )
+    assert result == {}
+
+
+def test_english_named_place_stays_distinct_from_neighboring_location():
+    from src.pictova.engine.selector import _matching_anchor_count, _matches_anchor_tokens
+
+    # Different Turkish spelling / morphology of *the same* name is safe.
+    assert _matches_anchor_tokens({"aladag", "national"}, {"aladaglar"})
+    # A nearby major city or country is never a substitute for the named place.
+    assert not _matches_anchor_tokens({"kayseri", "turkey"}, {"aladaglar", "turkey"})
+    assert _matching_anchor_count({"kayseri", "turkey"}, {"aladaglar"}) == 0
