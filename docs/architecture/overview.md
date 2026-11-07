@@ -23,4 +23,4 @@ The selector performs I/O; it is not a pure function. `plan` does not license im
 
 Offline tests verify contracts and rejection behavior, not whether a photograph truly depicts a particular place. Live WordPress publication is not validated by CI.
 
-See [Selection](../concepts/semantic-selection.md), [Studio](../guides/studio.md) and [Security](../../SECURITY.md).
+See [Operation lifecycles](lifecycles.md), [Selection](../concepts/semantic-selection.md), [Studio](../guides/studio.md) and [Security](../../SECURITY.md).

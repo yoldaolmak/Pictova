@@ -30,13 +30,39 @@ from src.utils.config import env_str, get_visual_memory_db_path
 DB_PATH = get_visual_memory_db_path()
 DEFAULT_DAILY_LIMIT = 1350
 _SCENE_WORDS = (
-    "coast", "beach", "mountain", "forest", "city", "urban", "rural",
-    "sea", "lake", "river", "valley", "castle", "mosque", "church",
-    "market", "bazaar", "harbor", "port", "ruins", "landscape", "nature",
+    "coast",
+    "beach",
+    "mountain",
+    "forest",
+    "city",
+    "urban",
+    "rural",
+    "sea",
+    "lake",
+    "river",
+    "valley",
+    "castle",
+    "mosque",
+    "church",
+    "market",
+    "bazaar",
+    "harbor",
+    "port",
+    "ruins",
+    "landscape",
+    "nature",
 )
 _ACTIVITY_WORDS = (
-    "walking", "hiking", "swimming", "sailing", "photography", "tourism",
-    "travel", "dining", "shopping", "sightseeing",
+    "walking",
+    "hiking",
+    "swimming",
+    "sailing",
+    "photography",
+    "tourism",
+    "travel",
+    "dining",
+    "shopping",
+    "sightseeing",
 )
 
 _lock = threading.Lock()
@@ -96,7 +122,34 @@ def _effective_limit(requested: int, daily_count: int, daily_limit: int) -> int:
     return min(requested, remaining)
 
 
-def _update_done(con_path: str, source_id: str, result: dict[str, Any]) -> None:
+def _claim_source(con_path: str, source_id: str, *, retry_errors: bool = False) -> str | None:
+    """Atomically claim one item; stale workers cannot overwrite a new claim."""
+    lease = _now()
+    con = _connect(con_path)
+    try:
+        cursor = con.execute(
+            """
+            UPDATE asset_index
+            SET vision_scan_status = 'scanning', vision_last_scanned_at = ?
+            WHERE source_id = ?
+            AND (
+                vision_scan_status = 'pending'
+                OR (? AND vision_scan_status = 'error')
+                OR (
+                    vision_scan_status = 'scanning'
+                    AND COALESCE(julianday(vision_last_scanned_at), 0) < julianday('now', '-90 minutes')
+                )
+            )
+            """,
+            [lease, source_id, int(retry_errors)],
+        )
+        con.commit()
+        return lease if cursor.rowcount == 1 else None
+    finally:
+        con.close()
+
+
+def _update_done(con_path: str, source_id: str, result: dict[str, Any], *, lease: str | None = None) -> bool:
     keywords = result.get("keywords") or []
     people = result.get("people") or []
     scene = str(result.get("scene") or "")
@@ -121,6 +174,7 @@ def _update_done(con_path: str, source_id: str, result: dict[str, Any]) -> None:
                 vision_last_scanned_at = ?,
                 vision_last_error = NULL
             WHERE source_id = ?
+              AND (? IS NULL OR (vision_scan_status = 'scanning' AND vision_last_scanned_at = ?))
             """,
             [
                 json.dumps(keywords, ensure_ascii=False),
@@ -131,14 +185,18 @@ def _update_done(con_path: str, source_id: str, result: dict[str, Any]) -> None:
                 _coerce_story_score(result.get("story_score")),
                 _now(),
                 source_id,
+                lease,
+                lease,
             ],
         )
+        changed = con.total_changes > 0
         con.commit()
+        return changed
     finally:
         con.close()
 
 
-def _update_error(con_path: str, source_id: str, error: str) -> None:
+def _update_error(con_path: str, source_id: str, error: str, *, lease: str | None = None) -> bool:
     con = _connect(con_path)
     try:
         con.execute(
@@ -148,18 +206,22 @@ def _update_error(con_path: str, source_id: str, error: str) -> None:
                 vision_last_error = ?,
                 vision_last_scanned_at = ?
             WHERE source_id = ?
+              AND (? IS NULL OR (vision_scan_status = 'scanning' AND vision_last_scanned_at = ?))
             """,
-            [error[:500], _now(), source_id],
+            [error[:500], _now(), source_id, lease, lease],
         )
+        changed = con.total_changes > 0
         con.commit()
+        return changed
     finally:
         con.close()
 
 
-def _record_error(con_path: str, source_id: str, error: str) -> None:
+def _record_error(con_path: str, source_id: str, error: str, *, lease: str | None = None) -> None:
     global _errors
     try:
-        _update_error(con_path, source_id, error)
+        if not _update_error(con_path, source_id, error, lease=lease):
+            return
     except sqlite3.Error as db_error:
         error = f"{error}; error state yazılamadı: {db_error}"
     with _lock:
@@ -167,13 +229,16 @@ def _record_error(con_path: str, source_id: str, error: str) -> None:
         print(f"  ✗ {source_id}: {error[:180]}", file=sys.stderr)
 
 
-def _worker(rows: list[tuple[Any, ...]], db_path: str, worker_id: int) -> None:
+def _worker(rows: list[tuple[Any, ...]], db_path: str, worker_id: int, retry_errors: bool = False) -> None:
     global _done
     for row in rows:
         source_id, source_path, city, state, country, raw_labels = row
+        lease = _claim_source(db_path, source_id, retry_errors=retry_errors)
+        if lease is None:
+            continue  # Another worker/process already owns this asset.
         location = city or state or country or ""
         if not Path(source_path).exists():
-            _record_error(db_path, source_id, "file_not_found")
+            _record_error(db_path, source_id, "file_not_found", lease=lease)
             continue
 
         apple_labels: list[object] = []
@@ -196,9 +261,10 @@ def _worker(rows: list[tuple[Any, ...]], db_path: str, worker_id: int) -> None:
                 location_hint=location,
                 post_context=post_context,
             )
-            _update_done(db_path, source_id, result)
+            if not _update_done(db_path, source_id, result, lease=lease):
+                continue  # The lease was superseded; do not claim success.
         except Exception as exc:
-            _record_error(db_path, source_id, f"{type(exc).__name__}: {exc}")
+            _record_error(db_path, source_id, f"{type(exc).__name__}: {exc}", lease=lease)
             continue
 
         with _lock:
@@ -214,6 +280,11 @@ def main() -> None:
     global _done, _errors, _total
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workers", type=int, default=2)
+    parser.add_argument(
+        "--retry-errors",
+        action="store_true",
+        help="Also retry assets previously marked error (never reprocess done/skipped)",
+    )
     parser.add_argument("--limit", type=int, default=0, help="Bu çalıştırmadaki en fazla kayıt; 0=limit yok")
     parser.add_argument(
         "--daily-limit",
@@ -237,7 +308,7 @@ def main() -> None:
         daily_count = con.execute(
             """
             SELECT count(*) FROM asset_index
-            WHERE vision_scan_status = 'done'
+            WHERE vision_scan_status IN ('done', 'error', 'scanning')
               AND date(vision_last_scanned_at) = date('now')
             """
         ).fetchone()[0]
@@ -252,11 +323,18 @@ def main() -> None:
         query = """
             SELECT source_id, source_path, city, state_province, country, apple_labels_json
             FROM asset_index
-            WHERE vision_scan_status = 'pending'
+            WHERE (
+                vision_scan_status = 'pending'
+                OR (? AND vision_scan_status = 'error')
+                OR (
+                    vision_scan_status = 'scanning'
+                    AND COALESCE(julianday(vision_last_scanned_at), 0) < julianday('now', '-90 minutes')
+                )
+            )
               AND source_path != '' AND source_path IS NOT NULL
             ORDER BY quality_score DESC
         """
-        params: list[int] = []
+        params: list[int] = [int(args.retry_errors)]
         if effective_limit:
             query += " LIMIT ?"
             params.append(effective_limit)
@@ -276,7 +354,7 @@ def main() -> None:
 
     db_path = str(DB_PATH)
     threads = [
-        threading.Thread(target=_worker, args=(buckets[index], db_path, index + 1))
+        threading.Thread(target=_worker, args=(buckets[index], db_path, index + 1, args.retry_errors))
         for index in range(args.workers)
     ]
     for thread in threads:

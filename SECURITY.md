@@ -18,7 +18,10 @@ Pictova can read private photos and WordPress content, use paid providers, and m
 
 - Local or provider metadata is not ground truth for image identity.
 - Signed CDN URLs and redirects still need a separate SSRF/redirect-policy review.
-- Studio jobs are process-local; a restart can lose their status. Check the WordPress post and operation receipt before retrying.
+- Studio plans are process-local; job status is persisted in private 0600 local receipts. Restarted queued/running jobs are marked `interrupted`, never replayed. Inspect WordPress and the full operation receipt before retrying.
+- The local job-status store is bounded to the latest 256 jobs, up to seven days. Only compact outcome fields are saved; raw provider data and browser secrets are excluded.
+- Media created in WordPress but not fully configured is deleted on a metadata failure when possible; failed cleanup is reported as an orphan, never hidden as a successful attach.
+- WordPress REST's optimistic check is not an atomic transaction with another editor's writes. Read-after-write validation and media manifests reduce risk but cannot guarantee cross-process compare-and-swap.
 - CI uses synthetic images, mocked WordPress and model responses; it does not verify a real publish or real-world visual recognition.
 
 ## Reporting

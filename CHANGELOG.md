@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Fixed
+- Verified WordPress Gutenberg insertion and manifest evidence now determine native and legacy publish outcomes; upload-only successes are rejected.
+- Partial, failed and interrupted jobs are distinct across the server and Studio UI. Short-lived Studio plans survive failed enqueue attempts without double submission.
+- Authenticated job-state receipts survive process restarts without automatically replaying paid writes; stale jobs are marked interrupted.
+- Managed-media integrity now checks actual Gutenberg blocks, approved heading and original URL, not just matching ID tokens.
+- Failed media metadata writes now trigger compensating deletion of the new WordPress attachment; failed cleanup and association errors are reported for manual reconciliation.
+- Per-photo processing errors and recoverable Visual Memory scan errors are explicit. SQLite scan leases prevent duplicate concurrent paid analysis; daily scan quotas count attempted work.
+
+
 ### Added
 - Pictova Studio: local URL-based preview, heading placement, candidate rejection and single-use approval.
 - Separate consent for licensed stock downloads and revalidation of approved post/image identities.

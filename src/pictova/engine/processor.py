@@ -20,6 +20,7 @@ def process_selected_images(
     processed_images: List[str] = []
     processed_details: Dict[str, Dict[str, Any]] = {}
     panoramic_images: Dict[str, Dict[str, Any]] = {}
+    failed_images: List[Dict[str, str]] = []
 
     for src_file in image_files:
         dest_file = processor.work_dir / (Path(src_file).stem + "_yo.webp")
@@ -35,11 +36,13 @@ def process_selected_images(
             import sys
 
             print(f"  ⚠ Skipped (permission denied): {Path(src_file).name}\n    {exc}", file=sys.stderr)
+            failed_images.append({"file": Path(src_file).name, "reason": "permission_denied"})
             continue
         except Exception as exc:
             import sys
 
             print(f"  ✗ Processing error: {Path(src_file).name}: {exc}", file=sys.stderr)
+            failed_images.append({"file": Path(src_file).name, "reason": "processing_error"})
             continue
         if result_data.get("is_panoramic"):
             panoramic_images[src_file] = {
@@ -55,6 +58,7 @@ def process_selected_images(
         "processed_images": processed_images,
         "processed_details": processed_details,
         "panoramic_images": panoramic_images,
+        "failed_images": failed_images,
     }
 
 
