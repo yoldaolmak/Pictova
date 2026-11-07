@@ -32,12 +32,13 @@ from src.core.metadata_generator import (
     build_basic_metadata,
 )
 from src.services.wordpress import fetch_post_context, upload_images_batch
-from src.pictova.engine.search import (
-    CONTENT_FILTER_SQL,  # noqa: F401 — compatibility re-export
+# Keep the historical module-level search aliases available to legacy callers.
+from src.pictova.engine.search import (  # noqa: F401
+    CONTENT_FILTER_SQL,
     _FILTER_ALIASES,
     _ascii_normalize,
-    _hero_score,  # noqa: F401 — compatibility re-export
-    load_vil_images_from_index,  # noqa: F401 — compatibility re-export
+    _hero_score,
+    load_vil_images_from_index,
     load_vil_images_from_index_for_post,
     search_semantic_assets,
 )
