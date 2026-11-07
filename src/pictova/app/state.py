@@ -106,6 +106,10 @@ class JobRegistry:
                 continue
             records.append(value)
         records.sort(key=lambda value: value["created_at"], reverse=True)
+        # The operation receipt is retained separately; keep only the most
+        # recent bounded job-status snapshots in the local registry.
+        for record in records[_MAX_JOBS:]:
+            (self._directory / f"{record['job_id']}.json").unlink(missing_ok=True)
         for record in records[:_MAX_JOBS]:
             if record["status"] in {"queued", "running"}:
                 record["status"] = "interrupted"
@@ -130,13 +134,16 @@ class JobRegistry:
             "error": None,
         }
         with self._lock:
-            if len(self._jobs) >= _MAX_JOBS:
-                oldest = min(self._jobs.values(), key=lambda item: item["created_at"])
-                self._jobs.pop(oldest["job_id"])
-                (self._directory / f"{oldest['job_id']}.json").unlink(missing_ok=True)
-            # Durably record the queued job *before* a thread can write to WP.
+            oldest = (
+                min(self._jobs.values(), key=lambda item: item["created_at"])
+                if len(self._jobs) >= _MAX_JOBS else None
+            )
+            # A failed new write must not erase an older durable receipt.
             self._persist(job)
             self._jobs[job_id] = job
+            if oldest:
+                self._jobs.pop(oldest["job_id"])
+                (self._directory / f"{oldest['job_id']}.json").unlink(missing_ok=True)
         thread = threading.Thread(
             target=self._run_job,
             kwargs={"job_id": job_id, "runner": runner, "payload": dict(payload)},
