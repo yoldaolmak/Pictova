@@ -13,6 +13,7 @@ from src.core.media_publish import build_publish_slug_candidates, embed_metadata
 from src.pictova.profiles.yoldaolmak import apply_environment
 from src.pictova.engine.metadata import build_native_metadata_map
 from src.pictova.engine.placement import should_render_as_gallery
+from src.pictova.engine.publish_outcome import classify_publish_result
 from src.pictova.engine.quality import quality_gate_native_batch
 from src.pictova.providers.wordpress import fetch_post_context, resolve_post_site
 from src.pictova.engine.processor import process_selected_images
@@ -771,6 +772,9 @@ def _execute_native_attach_locked(
         processed_images=finalized_files,
         metadata_dict=finalized_metadata,
     )
+    status, publish_reason, needs_reconciliation = classify_publish_result(
+        published, warnings=bool(selection_warnings or blocked)
+    )
     duration_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
     return {
         "command": "attach",
@@ -778,7 +782,10 @@ def _execute_native_attach_locked(
         "post_id": request.get("post_id"),
         "request": request,
         "post_context": summarize_post_context(post_context),
-        "status": "partial" if (published.get("failed") or selection_warnings or blocked) else "success",
+        "status": status,
+        "publish_reason": publish_reason,
+        "needs_reconciliation": needs_reconciliation,
+        "content_update": published.get("content_update") or {},
         "selected_assets": selection.get("files", []),
         "rejected_assets": blocked,
         "uploaded_media_ids": [item.get("media_id") for item in published.get("uploaded", []) if item.get("media_id")],
@@ -786,7 +793,10 @@ def _execute_native_attach_locked(
         "uploaded": published.get("uploaded", []),
         "failed_uploads": published.get("failed", []),
         "constraints": constraints,
-        "warnings": selection_warnings + metadata_warnings,
+        "warnings": selection_warnings + metadata_warnings + (
+            [f"WordPress publishing not fully verified ({publish_reason}); inspect post and manifest"]
+            if status != "success" else []
+        ),
         "duration_ms": duration_ms,
         "raw": {
             "selection": selection,
