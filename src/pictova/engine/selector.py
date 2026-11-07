@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from hashlib import sha256
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 import json
 import os
