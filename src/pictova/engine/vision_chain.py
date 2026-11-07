@@ -98,7 +98,7 @@ def _parse_json_from_text(text: str) -> Dict:
     if not isinstance(text, str) or len(text) > _MAX_MODEL_CONTENT_CHARS:
         raise ValueError(error)
     text = text.strip()
-    fenced = re.search(r"```(?:json)?\\s*(.*?)\\s*```", text, flags=re.S | re.I)
+    fenced = re.search(r"```(?:json)?\s*(.*?)\s*```", text, flags=re.S | re.I)
     if fenced:
         text = fenced.group(1).strip()
     elif not text.startswith("{"):
