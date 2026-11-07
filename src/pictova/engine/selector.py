@@ -751,6 +751,11 @@ _EDITORIAL_CONCEPTS = (
     frozenset({"mosque", "cami", "camii"}),
     frozenset({"church", "kilise", "kilisesi"}),
     frozenset({"monastery", "manastir", "manastiri"}),
+    frozenset({"border", "sinir", "siniri"}),
+    frozenset({"police", "polis", "polisi", "polisinin"}),
+    frozenset({"passport", "pasaport"}),
+    frozenset({"control", "kontrol", "kontrolu", "kontrolunde"}),
+    frozenset({"gate", "kapisi", "kapilarindaki"}),
 )
 
 
