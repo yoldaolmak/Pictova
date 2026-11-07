@@ -141,9 +141,11 @@ def test_offline_model_cannot_turn_unrelated_beach_visual_into_named_app(tmp_pat
 def test_offline_openrouter_query_expansion_is_only_search_suggestion():
     fake = SyntheticOpenRouterTransport('{"queries":["mountain landscape", "stone buildings"]}')
     with patch("src.pictova.engine.vision_chain.urllib.request.urlopen", side_effect=fake):
+        direct = query_expansion._ask_lm_studio("synthetic query", vision_chain)
         result = query_expansion.expand_heading_query(
             "3. Uçhisar Kalesi", {"title": "Kapadokya Gezi Rehberi"}
         )
+    assert direct == '{"queries":["mountain landscape", "stone buildings"]}'
     assert result == ["mountain landscape", "stone buildings"]
     assert fake.requests[0]["model"] == "local"
 
@@ -182,7 +184,7 @@ def test_openrouter_response_fenced_json_with_braces_is_not_misparsed():
     payload = {
         "choices": [{
             "message": {
-                "content": 'Here is JSON:\\n```json\\n{"alt": "A sign { with braces }", "keywords": ["stone"]}\\n```',
+                "content": 'Here is JSON:\n```json\n{"alt": "A sign { with braces }", "keywords": ["stone"]}\n```',
             },
             "finish_reason": "stop",
         }]
