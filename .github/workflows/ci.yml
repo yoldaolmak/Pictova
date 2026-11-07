@@ -32,8 +32,10 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install -e .
+        pip install -e ".[dev]"
+        python -m pip check
+        pictova --help
+        pictova studio --help
     
     - name: Run tests
       run: |
