@@ -47,6 +47,17 @@ python3.10 -m pytest tests/integration/  # integration only
 
 Integration tests require no WordPress credentials — they test the CLI contract with structured failure responses.
 
+## Synthetic model contract testing
+
+Run `python3.10 -m pytest tests/unit/test_synthetic_model_contract.py -q` to
+exercise Pictova's existing local OpenAI-compatible completion boundary without
+an API key, socket, or provider charge. The fixture passes synthetic metadata
+through the production metadata and quality gates, including wrong-image
+rejection and truncated-response handling. It does **not** infer anything from
+actual pixels; a real vision provider and editorial review remain necessary
+for real-world visual accuracy. Do not add a fake model to the production
+provider chain to make missing credentials look like successful analysis.
+
 ## Documentation
 
 - All docs are in English
