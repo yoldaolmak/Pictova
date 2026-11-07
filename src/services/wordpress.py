@@ -936,6 +936,21 @@ class YOWordPressUploader:
                 "missing_media_ids": missing_ids,
             }
 
+        # A class attribute containing the expected ID is insufficient:
+        # verify its Gutenberg image block, URL and placement before sealing
+        # the durable manifest as healthy.
+        observed = assess_post_media(
+            {"expected_media_ids": expected_ids, "media_items": media_items},
+            content_raw,
+        )
+        if observed["state"] != "healthy":
+            return {
+                "success": False,
+                "code": "post_update_verification_failed",
+                "error": "WordPress media blocks or approved H2/H3 placement could not be verified",
+                **observed,
+            }
+
         try:
             manifest = save_post_media_manifest(
                 site=self.site,
@@ -1032,6 +1047,11 @@ class YOWordPressUploader:
                     post_id,
                     manifest.get("media_items", []),
                     allow_manifest_repair=True,
+                    reposition_managed=bool(
+                        integrity.get("misplaced_media_ids")
+                        or integrity.get("duplicate_media_ids")
+                        or integrity.get("changed_url_media_ids")
+                    ),
                 )
                 if not result.get("success"):
                     return {
