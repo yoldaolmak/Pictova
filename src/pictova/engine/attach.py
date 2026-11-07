@@ -797,6 +797,7 @@ def _execute_native_attach_locked(
         "publish_reason": publish_reason,
         "needs_reconciliation": needs_reconciliation,
         "content_update": published.get("content_update") or {},
+        "rollback": published.get("rollback") or {},
         "selected_assets": selection.get("files", []),
         "rejected_assets": blocked,
         "uploaded_media_ids": [item.get("media_id") for item in published.get("uploaded", []) if item.get("media_id")],
