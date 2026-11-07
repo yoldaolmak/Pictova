@@ -63,6 +63,23 @@ Use `--source deposit` when a licensed DepositPhotos-only run is required. An
 exact match that cannot be found or downloaded returns a structured incomplete
 result; it does not fall back to a loosely related image.
 
+## Pictova Studio — one-screen review
+
+The CLI remains the primary automation surface. A local browser interface now
+lets an editor paste a configured WordPress post URL, review actual image
+previews and proposed section placements, reject candidates, and explicitly
+approve only the remaining candidates for native publishing.
+
+    pictova studio
+
+Studio opens a loopback-only page with an ephemeral access token. It uses
+short-lived, single-use approval plans rather than rediscovering images after
+the user has approved them. Paid stock downloads require separate consent;
+changes to the source photo or WordPress post stop the operation.
+
+See the [Studio guide](docs/guides/studio.md) for current iCloud and provider
+limits.
+
 ## Optional authenticated HTTP API
 
 The CLI is the simplest operating surface. If local HTTP access is required,
@@ -108,6 +125,7 @@ tests/                 regression and contract tests
 
 - [Concepts](docs/README.md)
 - [CLI reference](docs/reference/cli.md)
+- [Studio visual editor](docs/guides/studio.md)
 - [Configuration](docs/reference/configuration.md)
 - [Native engine architecture](docs/architecture/overview.md)
 - [Operational runbook](docs/ops/runbook.md)
