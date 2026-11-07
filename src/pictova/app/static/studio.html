@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Pictova Studio — Görsel seçimi ve yerleştirme</title>
+  <link rel="stylesheet" href="/studio/style.css">
+  <script defer src="/studio/app.js"></script>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brandmark" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+        <div>
+          <div class="brandname">PICTOVA <span>STUDIO</span></div>
+          <div class="brandcaption">Görsel seçimi ve WordPress yerleşimi</div>
+        </div>
+      </div>
+      <div class="status"><span class="statusdot"></span> Yalnızca yerel bağlantı</div>
+    </header>
+
+    <div class="workspace">
+      <aside class="sidebar">
+        <div class="eyebrow">EDİTÖR MASASI / 01</div>
+        <h1>Her bölüm için <em>doğru görsel.</em></h1>
+        <p class="lede">Yazının bağlantısını girin. Pictova adayları ve önerilen yerleşimlerini hazırlasın. Yalnızca seçtiklerinizi yayımlayın.</p>
+
+        <section id="auth-panel" class="auth-panel" hidden>
+          <label for="token">Yerel erişim anahtarı</label>
+          <p>Mevcut <code>pictova serve</code> oturumu için PICTOVA_HTTP_TOKEN değerini girin.</p>
+          <input id="token" type="password" autocomplete="off" placeholder="Bearer token">
+          <button id="connect" type="button" class="smallbutton">Bağlan</button>
+        </section>
+
+        <form id="plan-form" class="form" autocomplete="off">
+          <label for="post-url">WordPress yazısının URL’si</label>
+          <input id="post-url" type="url" inputmode="url" placeholder="https://yoldaolmak.com/ornek-yazi.html" required spellcheck="false">
+          <div class="fieldsplit">
+            <div>
+              <label for="image-count">En fazla görsel</label>
+              <select id="image-count">
+                <option>1</option><option>2</option><option>3</option>
+                <option selected>4</option><option>5</option><option>6</option>
+                <option>7</option><option>8</option>
+              </select>
+            </div>
+            <div class="source-note">Kaynak <strong>Otomatik</strong><small>Önce yerel arşiv, sonra uygun stok adayları</small></div>
+          </div>
+          <button id="plan-button" class="mainbutton" type="submit">
+            <span>Görsel planını oluştur</span><span aria-hidden="true">↗</span>
+          </button>
+        </form>
+
+        <div class="steps" aria-label="İş akışı">
+          <div><span class="stepnumber">01</span><span>Yazıyı incele</span></div>
+          <div><span class="stepnumber">02</span><span>Görselleri değerlendir</span></div>
+          <div><span class="stepnumber">03</span><span>Onaylayıp uygula</span></div>
+        </div>
+
+        <div class="trust">
+          <strong>Kontrol sizde.</strong>
+          <p>Plan oluşturmak WordPress’e yazmaz. DepositPhotos lisansı yalnızca açık onayla indirilir. Eşleşmeyen bölümler boş kalır.</p>
+        </div>
+      </aside>
+
+      <main class="main">
+        <div class="main-top">
+          <div>
+            <div class="eyebrow">GÖRSEL İNCELEMESİ / 02</div>
+            <h2>Seçim ve yerleşim</h2>
+          </div>
+          <div class="plan-status" id="plan-state">Henüz plan yok</div>
+        </div>
+
+        <div role="status" id="notice" aria-live="polite" class="notice" hidden></div>
+        <section id="empty-state" class="empty">
+          <div class="empty-visual" aria-hidden="true">
+            <div class="frame frame-a"></div><div class="frame frame-b"></div><div class="frame frame-c"></div>
+            <div class="frame-cross">+</div>
+          </div>
+          <h3>İlk görsel planınızı oluşturun</h3>
+          <p>Bir WordPress bağlantısı girildiğinde önerilen görseller burada, hedef H2/H3 başlıklarıyla birlikte görünür.</p>
+        </section>
+
+        <section id="plan-section" hidden>
+          <div class="article-summary">
+            <div class="eyebrow">HEDEF YAZI</div>
+            <h3 id="article-title"></h3>
+            <div class="article-meta" id="article-meta"></div>
+          </div>
+          <div class="selection-bar">
+            <div><strong id="selection-count">0 aday seçildi</strong><span id="section-count"></span></div>
+            <button id="select-none" type="button" class="textbutton">Seçimi temizle</button>
+          </div>
+          <div id="candidate-grid" class="candidate-grid"></div>
+          <div id="unmatched" class="unmatched" hidden></div>
+          <div id="warnings" class="warnings" hidden></div>
+          <div class="approval">
+            <div class="approval-summary">
+              <h3>Yayımlama onayı</h3>
+              <p>Sadece işaretlediğiniz adaylar, gösterilen bölümlere yerleştirilir. Yazı arada değişirse işlem durur.</p>
+            </div>
+            <label class="checkline"><input id="confirm" type="checkbox"><span>Seçimi ve yerleşimleri inceledim; WordPress’e uygulanmasını onaylıyorum.</span></label>
+            <label class="checkline" id="paid-line" hidden><input id="confirm-paid" type="checkbox"><span>Seçili lisanslı stok görsellerinin ücret doğurabileceğini anladım ve onaylıyorum.</span></label>
+            <button id="apply-button" type="button" class="mainbutton publish" disabled><span>Onaylanan görselleri uygula</span><span aria-hidden="true">↗</span></button>
+            <div class="approval-foot">İşlem, mevcut native Pictova işleme ve kalite kapılarından geçer.</div>
+          </div>
+        </section>
+
+        <footer class="footer">PICTOVA STUDIO <span>·</span> Mevcut CLI ile aynı motor <span>·</span> Yerel oturum</footer>
+      </main>
+    </div>
+  </div>
+</body>
+</html>
