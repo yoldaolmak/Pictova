@@ -35,19 +35,27 @@ def test_media_items_from_content_keeps_nearest_heading():
 
 def test_manifest_round_trip_merges_and_detects_drift(tmp_path, monkeypatch):
     monkeypatch.setenv("PICTOVA_POST_MANIFEST_DIR", str(tmp_path))
-    first_content = '<img src="https://example.com/11.webp" class="wp-image-11"/>'
-    second_content = first_content + '<img src="https://example.com/12.webp" class="wp-image-12"/>'
+    first_content = (
+        '<h2>Koy</h2><!-- wp:image {"id":11} -->'
+        '<figure><img src="https://example.com/11.webp" class="wp-image-11"/></figure>'
+        '<!-- /wp:image -->'
+    )
+    second_content = first_content + (
+        '<h2>Fener</h2><!-- wp:image {"id":12} -->'
+        '<figure><img src="https://example.com/12.webp" class="wp-image-12"/></figure>'
+        '<!-- /wp:image -->'
+    )
 
     save_post_media_manifest(
         site="yoldaolmak",
         post_id=267970,
-        media_items=[{"media_id": 11, "url": "https://example.com/11.webp", "heading": "Koy"}],
+        media_items=[{"media_id": 11, "url": "https://example.com/11.webp", "heading": "Koy", "heading_level": 2}],
         content_raw=first_content,
     )
     saved = save_post_media_manifest(
         site="yoldaolmak",
         post_id=267970,
-        media_items=[{"media_id": 12, "url": "https://example.com/12.webp", "heading": "Fener"}],
+        media_items=[{"media_id": 12, "url": "https://example.com/12.webp", "heading": "Fener", "heading_level": 2}],
         content_raw=second_content,
     )
 
@@ -101,14 +109,24 @@ def test_remove_empty_image_blocks_strips_placeholders():
 
 def test_guard_repairs_manifest_drift(tmp_path, monkeypatch):
     monkeypatch.setenv("PICTOVA_POST_MANIFEST_DIR", str(tmp_path))
-    healthy_content = '<i class="wp-image-1"></i><i class="wp-image-2"></i>'
-    drifted_content = '<i class="wp-image-1"></i>'
+    first = (
+        '<h2>Koy</h2><!-- wp:image {"id":1} -->'
+        '<figure><img src="https://example.com/1.webp" class="wp-image-1"/></figure>'
+        '<!-- /wp:image -->'
+    )
+    second = (
+        '<h2>Fener</h2><!-- wp:image {"id":2} -->'
+        '<figure><img src="https://example.com/2.webp" class="wp-image-2"/></figure>'
+        '<!-- /wp:image -->'
+    )
+    healthy_content = first + second
+    drifted_content = first
     save_post_media_manifest(
         site="yoldaolmak",
         post_id=99,
         media_items=[
-            {"media_id": 1, "url": "https://example.com/1.webp", "heading": "Koy"},
-            {"media_id": 2, "url": "https://example.com/2.webp", "heading": "Fener"},
+            {"media_id": 1, "url": "https://example.com/1.webp", "heading": "Koy", "heading_level": 2},
+            {"media_id": 2, "url": "https://example.com/2.webp", "heading": "Fener", "heading_level": 2},
         ],
         content_raw=healthy_content,
     )
