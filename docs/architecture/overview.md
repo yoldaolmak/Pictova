@@ -1,55 +1,26 @@
-# Pictova Architecture
+# Architecture
 
-Pictova is a standalone Python application. The supported path keeps CLI/HTTP
-parsing, editorial selection, media processing and WordPress writes at explicit
-boundaries. It does not depend on another editorial or visual-operations product.
-
-## Runtime structure
-
-| Area | Location | Owns |
-| --- | --- | --- |
-| App | `src/pictova/app/` | CLI, local authenticated HTTP, request/result contracts |
-| Engine | `src/pictova/engine/` | Heading selection, source orchestration, quality, metadata, placement, attach |
-| Providers | `src/pictova/providers/` | External search, downloads and WordPress reads |
-| WordPress adapter | `src/services/wordpress.py` | Media upload, Gutenberg changes, managed-media verification |
-| Profiles | `src/pictova/profiles/` | Site configuration; no universal destination truth |
-| Indexing | `scripts/` | Local Photos and Visual Memory maintenance |
-
-The selector performs source reads/searches through providers and the local
-index; the engine is **not** a pure in-memory layer. Avoid concealing paid
-downloads or WordPress writes behind functions described as previews.
-
-## Selection and publishing boundaries
+Pictova has one supported publishing pipeline. CLI, local HTTP and Studio call the native engine; Studio adds operator review and one-use approval, not a second publisher.
 
 ```text
-WordPress article + H2/H3 headings
-  → section subjects and exact-match requirements
-  → local index / configured image providers
-  → candidate evidence checks and selection
-  → image processing + metadata + quality validation
-  → native attach (explicit write)
-  → WordPress media and Gutenberg blocks
-  → managed-media verification
+WordPress post + H2/H3
+  → heading-aware candidates (local index / configured providers)
+  → accepted assets → process → visual metadata → quality gate
+  → WordPress Gutenberg insert → managed-media verification
 ```
 
-A broad post location is not an acceptable substitute for a named heading.
-A generic model-generated search query is not approval. If the original named
-subject cannot be supported, that slot remains empty.
+| Code | Responsibility |
+| --- | --- |
+| `src/pictova/app/` | CLI, Studio, authenticated local HTTP and job results |
+| `src/pictova/engine/` | Selection, processing, quality and native attach |
+| `src/pictova/providers/` | Image-provider calls and WordPress reads |
+| `src/services/wordpress.py` | Gutenberg upload, insertion, managed-media safeguards |
+| `scripts/` | Local photo indexing and optional metadata scans |
 
-`review`, `plan`, and `process` do not alter WordPress content. `attach`
-is the ordinary publishing path; mutating `guard` modes remain explicit.
+The selector performs I/O; it is not a pure function. `plan` does not license images or write to WordPress. `process` can download or license; `attach` can upload and publish.
 
-## Legacy boundary
+`src/core/` and `src/main.py` remain as legacy compatibility. `--engine legacy` does not provide all native safeguards; do not build new features there.
 
-`src/main.py` and `src/core/` contain compatibility code. The CLI still
-accepts `--engine legacy`, which calls the old orchestrator and lacks the
-native path's complete checks. It is not the target for new product behavior.
-See [Native and Legacy](native-vs-legacy.md).
+Offline tests verify contracts and rejection behavior, not whether a photograph truly depicts a particular place. Live WordPress publication is not validated by CI.
 
-## Verification limits
-
-Offline tests cover selection, quality, HTTP and WordPress adapter contracts.
-They do not independently prove whether an arbitrary photograph actually
-depicts the section's place, and they do not constitute a live site deployment.
-See [Semantic Selection](../concepts/semantic-selection.md) and
-[Operations](../ops/runbook.md).
+See [Selection](../concepts/semantic-selection.md), [Studio](../guides/studio.md) and [Security](../../SECURITY.md).

@@ -1,76 +1,35 @@
-# Configuration Reference
+# Configuration
 
-All configuration is via environment variables, loaded from `.env` in the repo root.
+Pictova reads environment variables and the repository's optional `.env`. Copy `.env.example`; never commit real credentials.
 
 ## WordPress
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `WP_USER` | Yes for yoldaolmak | WordPress username |
-| `WP_APP_PASSWORD` | Yes for yoldaolmak | WordPress Application Password (`WP_PASSWORD` remains a legacy alias) |
-| `GEZIEVRENI_USER` / `GEZIEVRENI_PASS` | Yes for gezievreni | Site username and Application Password |
-| `GEZGINDUNYASI_USER` / `GEZGINDUNYASI_PASS` | Yes for gezgindunyasi | Site username and Application Password |
+| Variable | Use |
+| --- | --- |
+| `WP_URL`, `WP_USER`, `WP_APP_PASSWORD` | `yoldaolmak` profile |
+| `GEZIEVRENI_URL`, `GEZIEVRENI_USER`, `GEZIEVRENI_PASS` | `gezievreni` profile |
+| `GEZGINDUNYASI_URL`, `GEZGINDUNYASI_USER`, `GEZGINDUNYASI_PASS` | `gezgindunyasi` profile |
 
-## Image Sources
+Use WordPress Application Passwords, not your normal login password. `WP_PASSWORD` is a legacy alias for `WP_APP_PASSWORD`.
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `UNSPLASH_ACCESS_KEY` | For Unsplash source | Unsplash API access key |
-| `DEPOSIT_API_KEY` | For Deposit source | DepositPhotos API key |
-| `DEPOSIT_LOGIN_USER` / `DEPOSIT_LOGIN_PASSWORD` | For Deposit download | DepositPhotos account credentials |
-| `YO_VISUAL_MEMORY_DB` | For semantic source | Path to visual memory SQLite database |
+## Image sources and vision
 
-## AI / Vision
+| Variable | Use |
+| --- | --- |
+| `YO_VISUAL_MEMORY_DB` | SQLite image index (default: `data/visual_memory.db`) |
+| `UNSPLASH_ACCESS_KEY` | Unsplash |
+| `DEPOSIT_API_KEY`, `DEPOSIT_LOGIN_USER`, `DEPOSIT_LOGIN_PASSWORD` | Licensed DepositPhotos |
+| `GEMINI_API_KEY` or `GEMINI_API_KEYS` | Gemini; multi-key value is comma-separated |
+| `GEMINI_VISION_MODEL` | Optional Gemini model override |
+| `OPENAI_API_KEY` | Optional vision fallback |
+| `PICTOVA_VISION_DAILY_LIMIT` | Completed scans per day (default 1350; `0` removes the cap) |
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `GEMINI_API_KEY` or `GEMINI_API_KEYS` | No | Gemini Flash vision provider; comma-separate multiple keys |
-| `OPENAI_API_KEY` | No | Low-cost vision fallback |
-| `ANTHROPIC_API_KEY` | No | Enables Claude CLI/API fallback where configured |
+The local LM Studio option can run without an API key. A cached or available vision model is needed for native visual metadata; synthetic CI fixtures are not a real model.
 
-For native attachment, Pictova first reuses completed Visual Memory metadata.
-If no usable cache entry exists, it requires an available vision provider; it
-fails closed rather than fabricating descriptive metadata.
+## Local HTTP and Studio
 
-## Local Index
+`PICTOVA_HTTP_TOKEN`: at least 32 ASCII characters for `pictova serve` and `pictova studio --no-open`. Plain `pictova studio` can create a temporary token and launch the browser.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `YO_VISUAL_MEMORY_DB` | `data/visual_memory.db` | Local semantic image index |
+HTTP bind host and port are CLI flags, not environment defaults. The server is loopback-only.
 
-## HTTP Server
-
-The HTTP endpoint is opt-in, authenticated, and loopback-only. The CLI's
-`serve --host` (default `127.0.0.1`) and `--port` (default `8040`)
-options control binding; `PICTOVA_HOST` / `PICTOVA_PORT` do not override
-these CLI defaults.
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `PICTOVA_HTTP_TOKEN` | Yes for `serve` | Private Bearer token, at least 32 ASCII characters. Generate with `secrets.token_urlsafe(32)`. |
-
-## Defaults
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PICTOVA_DEFAULT_COUNT` | `4` | Images per post when `--count` is omitted |
-| `PICTOVA_VISION_DAILY_LIMIT` | `1350` | Maximum completed Vision scans per calendar day; `0` disables the guard |
-
-## Example .env
-
-```bash
-# WordPress
-WP_USER=myusername
-WP_APP_PASSWORD=xxxx xxxx xxxx xxxx xxxx xxxx
-
-# Image sources
-UNSPLASH_ACCESS_KEY=abc123
-YO_VISUAL_MEMORY_DB=/absolute/path/to/visual_memory.db
-
-# Vision (optional, improves metadata quality)
-GEMINI_API_KEY=...
-OPENAI_API_KEY=...
-
-# Only needed for authenticated HTTP operation (prefer exporting in your shell)
-# PICTOVA_HTTP_TOKEN=<generate-random-secret>
-```
+Use `pictova health` to inspect configured source readiness. It does not validate individual image identity or a live WordPress publish.

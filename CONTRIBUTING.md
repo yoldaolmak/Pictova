@@ -1,65 +1,28 @@
 # Contributing
 
-## Naming Convention
+Pictova is an independent image-selection and WordPress placement tool. New work belongs in the native `src/pictova/` engine and app; `src/core/` and `src/main.py` are compatibility code.
 
-All code and documentation must use **Pictova** as the product name, `pictova` as the CLI command, and `src.pictova` as the Python package root. See [Brand & Naming Doctrine](docs/architecture/naming.md).
-
-## Branch and Commit
-
-- Branch from `main`
-- Commit messages: `type: short description` (feat, fix, docs, refactor, test, ops)
-- Every completed change must be committed and pushed — unpushed work is not done
-
-## Adding a Feature
-
-1. Update `CHANGELOG.md` under `[Unreleased]` when the change is user-visible
-2. Write or update tests in `tests/`
-3. Run `python3.10 -m pytest -q` — all must pass
-4. Update relevant `docs/` page; remove contradictory older claims
-5. Demonstrate both a plausible match and a wrong-image rejection for selection changes
-
-## Adding an Image Source
-
-1. Implement `src/pictova/providers/mysource.py` — see [Adding Sources](docs/guides/adding-sources.md)
-2. Register the provider in the native selector/provider boundary
-3. Add focused tests that prove strict matching and fail-closed behavior
-4. Update `docs/guides/adding-sources.md` and `docs/concepts/sources.md`
-
-## Architecture Rules
-
-- Optimize the real selection → processing → WordPress outcome, not test counts
-- Do not use broad location context or model-generated queries as proof of a named heading
-- Do not add place-specific equivalence rules that silently assert identity
-- Preserve unmanaged WordPress content and reject ambiguous writes
-
-- App layer (`src/pictova/app/`) contains no selection or publishing policy
-- Native engine and providers own the supported production path
-- New behavior must not bypass Pictova through one-off WordPress or provider scripts
-- Do not add new code to `src/core/` or `src/main.py`; migrate it into `src/pictova/engine/` instead
-
-## Testing
+## Setup and checks
 
 ```bash
-python3.10 -m pytest -q              # run all tests
-python3.10 -m pytest tests/unit/     # unit only
-python3.10 -m pytest tests/integration/  # integration only
+pip install -e '.[dev]'
+python -m pytest -q
+python -m flake8 src/ --max-line-length=120
+python -m black --check --line-length 120 src/
+node --check src/pictova/app/static/studio.js
 ```
 
-Integration tests require no WordPress credentials — they test the CLI contract with structured failure responses.
+Use a feature branch from `main`. Keep a PR focused on one product behavior. Add a regression for the successful case **and** for the wrong image or unsafe write being rejected.
 
-## Synthetic model contract testing
+## Boundaries
 
-Run `python3.10 -m pytest tests/unit/test_synthetic_model_contract.py -q` to
-exercise Pictova's existing local OpenAI-compatible completion boundary without
-an API key, socket, or provider charge. The fixture passes synthetic metadata
-through the production metadata and quality gates, including wrong-image
-rejection and truncated-response handling. It does **not** infer anything from
-actual pixels; a real vision provider and editorial review remain necessary
-for real-world visual accuracy. Do not add a fake model to the production
-provider chain to make missing credentials look like successful analysis.
+- The target heading, not the post title or an expanded model query, determines image identity.
+- Missing evidence leaves the placement empty. Do not invent place aliases.
+- A preview must not write to WordPress or quietly purchase a stock license.
+- Preserve non-Pictova Gutenberg blocks. Refuse ambiguous edits.
+- Keep existing CLI result and argument contracts compatible.
+- Never put credentials, private photo paths or raw post content in tests or issue reports.
 
-## Documentation
+Update only the relevant documentation and `CHANGELOG.md`. Describe verified behavior, not intended capability. CI uses mocked integrations and does not prove real-world visual accuracy or a live publish.
 
-- All docs are in English
-- Every new feature needs at least one updated doc page
-- Concepts = what/why; Guides = how; Reference = complete spec; Architecture = design decisions
+For source integrations, see [Adding sources](docs/guides/adding-sources.md). For trust limits, see [Security](SECURITY.md).

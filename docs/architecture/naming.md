@@ -1,28 +1,13 @@
-# Pictova Identity and Naming
+# Product Identity
 
-Pictova is an independent application: **Visual Intelligence for Content**.
-Its focus is selecting existing images and placing appropriate ones in
-WordPress articles, not generating artwork or running an editorial operating
-system.
+**Pictova** is an independent tool for finding, validating and placing existing images in WordPress articles. It does not generate images or depend on another editorial product.
 
-| Element | Canonical form |
+| Surface | Name |
 | --- | --- |
-| Product | Pictova |
-| GitHub | [yoldaolmak/Pictova](https://github.com/yoldaolmak/Pictova) |
+| Repository | `yoldaolmak/Pictova` |
 | CLI | `pictova` |
-| Python app | `src/pictova/` |
-| Primary engine | `src/pictova/engine/` |
-| Primary publishing surface | `pictova attach --engine native` |
+| Python package | `src.pictova` |
+| Interactive UI | `pictova studio` |
+| Native publishing | `pictova attach --engine native` |
 
-Pictova may be used alongside other content tools but has no architectural
-dependency on Meridyen, Atlas, Pictovap, or Pictovap Product. Those names do
-not identify modules, framework layers or release lines in this repository.
-
-## Naming rules
-
-Public documentation refers to **Pictova**, not legacy implementation
-codenames. Preserve existing compatibility paths where required by tested
-callers; do not expose them as separate products.
-
-Do not invent internal product brands, planned sublayers, or new service
-boundaries without a corresponding implemented user capability.
+Legacy `VIL` names persist only in compatibility code and configuration keys. Do not introduce new product names for internal modules.

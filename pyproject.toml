@@ -1,10 +1,27 @@
 [project]
 name = "pictova"
 version = "0.1.0"
-description = "Visual intelligence layer — finds, selects, and places images from any source into WordPress and beyond."
-requires-python = ">=3.10"
+description = "Select, validate and place existing images in WordPress articles."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "Pillow",
+    "anthropic",
+    "requests",
+    "numpy==1.26.4",
+    "opencv-python-headless==4.9.0.80",
+    "google-cloud-vision>=3.7.0",
+]
 
 [project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "pytest-asyncio>=0.21.0",
+    "flake8==7.3.0",
+    "black==25.1.0",
+]
 macos = [
     "osxphotos>=0.76; sys_platform == 'darwin'",
 ]
@@ -13,7 +30,7 @@ macos = [
 pictova = "src.pictova.app.cli:main"
 
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]

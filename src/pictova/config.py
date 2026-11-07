@@ -1,4 +1,4 @@
-"""Canonical VIL config exports."""
+"""Pictova configuration exports, including legacy environment aliases."""
 
 from src.utils.config import (
     PROJECT_ROOT,

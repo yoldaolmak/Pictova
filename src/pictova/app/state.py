@@ -1,4 +1,4 @@
-"""In-memory job registry for the VIL HTTP surface."""
+"""In-memory job registry for Pictova local HTTP and Studio."""
 
 from __future__ import annotations
 
