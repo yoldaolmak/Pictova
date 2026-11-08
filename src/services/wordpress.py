@@ -1421,6 +1421,11 @@ def _has_blocking_image_before_heading(content_before: str, target_level: int) -
     """
     if not _has_nearby_image_before(content_before):
         return False
+    # An image directly adjacent to the new heading still blocks it:
+    # even if from a previous section, stacking it against the next H3
+    # is a deliberate editorial safety boundary.
+    if _trailing_gutenberg_block_start(content_before.rstrip(), "image") is not None:
+        return True
     previous = list(_PREVIOUS_GUTENBERG_HEADING_RE.finditer(content_before))
     if not previous:
         return True
