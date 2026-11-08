@@ -12,6 +12,7 @@
 
 
 ### Added
+- Isolated synthetic WordPress REST end-to-end suite exercising Studio HTTP approval, real JPEG-to-WebP processing, media upload, Gutenberg insertion/readback, manifest, rollback, editor conflicts and paid consent without real credentials or license charges.
 - Pictova Studio: local URL-based preview, heading placement, candidate rejection and single-use approval.
 - Separate consent for licensed stock downloads and revalidation of approved post/image identities.
 - Offline OpenAI-compatible model contract tests and Studio HTTP/security regressions.
