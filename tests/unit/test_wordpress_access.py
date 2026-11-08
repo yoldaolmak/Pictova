@@ -257,3 +257,13 @@ def test_failed_post_association_is_partial_even_if_block_is_inserted(monkeypatc
     assert result["uploaded"][0]["media_id"] == 711
     assert result["failed"][0]["code"] == "post_media_association_failed"
     assert classify_publish_result(result) == ("partial", "verified_with_warnings", True)
+
+
+def test_managed_media_identity_normalizes_manifest_and_selected_asset_equally():
+    from src.services.wordpress import _managed_media_identity
+
+    manifest_identity = _managed_media_identity("  ISPARTA-KOYU.WEBP  ", "  Göl Kenarı  ", "3")
+    selection_identity = _managed_media_identity("isparta-koyu.webp", "göl kenarı", 3)
+
+    assert manifest_identity == selection_identity
+    assert _managed_media_identity("photo.webp", None, None) == ("photo.webp", "", 0)
