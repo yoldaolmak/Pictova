@@ -222,6 +222,51 @@ def build_handler(*, token: str) -> type[BaseHTTPRequestHandler]:
             code = HTTPStatus.OK if result.get("status") in {"ok", "success", "local"} else HTTPStatus.BAD_REQUEST
             _json_response(self, code, result)
 
+        def _post_payload(self) -> Dict[str, Any] | None:
+            """Parse a bounded JSON request once, with a consistent error response."""
+            payload, error = _load_json_body(self)
+            if error:
+                status = (
+                    HTTPStatus.REQUEST_ENTITY_TOO_LARGE if error == "request body too large" else HTTPStatus.BAD_REQUEST
+                )
+                _json_response(self, status, {"status": "failed", "warning": error})
+                return None
+            return payload
+
+        def _post_studio(self, payload: Dict[str, Any]) -> None:
+            try:
+                if self.path == "/studio/plan":
+                    result = studio_plans.plan(payload.get("url"), payload.get("count", 4))
+                    status = HTTPStatus.OK
+                else:
+                    result = studio_plans.approve(
+                        payload.get("plan_id"),
+                        payload.get("accepted_ids"),
+                        confirm_paid=payload.get("confirm_paid", False),
+                    )
+                    status = HTTPStatus.ACCEPTED
+            except StudioError as exc:
+                result = {"status": "failed", "warning": str(exc)}
+                status = HTTPStatus.BAD_REQUEST
+            except Exception:
+                result = {"status": "failed", "warning": "Studio request failed"}
+                status = HTTPStatus.INTERNAL_SERVER_ERROR
+            _json_response(self, status, result)
+
+        def _post_attach_job(self, payload: Dict[str, Any]) -> None:
+            try:
+                job = job_registry.create_job(kind="attach", payload=payload, runner=attach_images)
+            except (OSError, ValueError, RuntimeError):
+                # Failure to persist a queued receipt must reach the caller as
+                # an HTTP response, not a dropped connection or raw traceback.
+                _json_response(
+                    self,
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    {"status": "failed", "warning": "job could not be queued; no operation started"},
+                )
+                return
+            _json_response(self, HTTPStatus.ACCEPTED, {"status": "accepted", "job": job})
+
         def do_POST(self) -> None:  # noqa: N802
             if not self._host_ok() or not self._authorized():
                 return
@@ -234,76 +279,24 @@ def build_handler(*, token: str) -> type[BaseHTTPRequestHandler]:
                     {"status": "failed", "warning": "cross-origin browser request refused"},
                 )
                 return
-            if studio_route:
-                payload, error = _load_json_body(self)
-                if error:
-                    status = (
-                        HTTPStatus.REQUEST_ENTITY_TOO_LARGE
-                        if error == "request body too large"
-                        else HTTPStatus.BAD_REQUEST
-                    )
-                    _json_response(self, status, {"status": "failed", "warning": error})
-                    return
-                try:
-                    if self.path == "/studio/plan":
-                        result = studio_plans.plan((payload or {}).get("url"), (payload or {}).get("count", 4))
-                        status = HTTPStatus.OK
-                    else:
-                        result = studio_plans.approve(
-                            (payload or {}).get("plan_id"),
-                            (payload or {}).get("accepted_ids"),
-                            confirm_paid=(payload or {}).get("confirm_paid", False),
-                        )
-                        status = HTTPStatus.ACCEPTED
-                except StudioError as exc:
-                    result = {"status": "failed", "warning": str(exc)}
-                    status = HTTPStatus.BAD_REQUEST
-                except Exception:
-                    result = {"status": "failed", "warning": "Studio request failed"}
-                    status = HTTPStatus.INTERNAL_SERVER_ERROR
-                _json_response(self, status, result)
-                return
-            if self.path == "/jobs/attach":
-                payload, error = _load_json_body(self)
-                if error:
-                    _json_response(
-                        self,
-                        (
-                            HTTPStatus.REQUEST_ENTITY_TOO_LARGE
-                            if error == "request body too large"
-                            else HTTPStatus.BAD_REQUEST
-                        ),
-                        {"status": "failed", "warning": error},
-                    )
-                    return
-                job = job_registry.create_job(
-                    kind="attach",
-                    payload=payload or {},
-                    runner=attach_images,
-                )
-                _json_response(self, HTTPStatus.ACCEPTED, {"status": "accepted", "job": job})
-                return
 
             route = routes.get(("POST", self.path))
-            if route is None:
+            if not studio_route and self.path != "/jobs/attach" and route is None:
                 _json_response(self, HTTPStatus.NOT_FOUND, {"status": "failed", "warning": "route not found"})
                 return
 
-            payload, error = _load_json_body(self)
-            if error:
-                _json_response(
-                    self,
-                    (
-                        HTTPStatus.REQUEST_ENTITY_TOO_LARGE
-                        if error == "request body too large"
-                        else HTTPStatus.BAD_REQUEST
-                    ),
-                    {"status": "failed", "warning": error},
-                )
+            payload = self._post_payload()
+            if payload is None:
+                return
+            if studio_route:
+                self._post_studio(payload)
+                return
+            if self.path == "/jobs/attach":
+                self._post_attach_job(payload)
                 return
 
             try:
-                result = route(payload or {})
+                result = route(payload)
             except Exception as exc:
                 _json_response(
                     self,
