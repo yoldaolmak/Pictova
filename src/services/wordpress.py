@@ -1404,6 +1404,30 @@ def _has_nearby_image_before(value: str) -> bool:
     return _trailing_gutenberg_block_start(stripped[:paragraph_start], "image") is not None
 
 
+_PREVIOUS_GUTENBERG_HEADING_RE = re.compile(
+    r"<!-- wp:heading(?:\\s+\\{.*?\\})? -->\\s*"
+    r"<h(?P<level>[1-6])\\b[^>]*>.*?</h(?P=level)>\\s*<!-- /wp:heading -->",
+    flags=re.S | re.I,
+)
+
+
+def _has_blocking_image_before_heading(content_before: str, target_level: int) -> bool:
+    """Only count an image above a heading when it is in the same section.
+
+    An image after a previous H2/H3 belongs to that previous section, even
+    when there is only one paragraph before the next peer heading. Treating
+    it as a neighbour of the next heading prevents legitimate per-H2 media.
+    An introduction image or an image after a parent H2 before its first H3
+    still blocks a too-close insertion.
+    """
+    if not _has_nearby_image_before(content_before):
+        return False
+    previous = list(_PREVIOUS_GUTENBERG_HEADING_RE.finditer(content_before))
+    if not previous:
+        return True
+    return int(previous[-1].group("level")) < target_level
+
+
 def _has_nearby_image_after(value: str) -> bool:
     if _leading_gutenberg_block_end(value, "image") is not None:
         return True
@@ -1454,7 +1478,7 @@ def _insert_block_after_heading(
         # above/below the heading, or with only one paragraph gap.
         before = content[: match.start()]
         after = content[match.end() :]
-        has_nearby_image_before = _has_nearby_image_before(before)
+        has_nearby_image_before = _has_blocking_image_before_heading(before, level)
         has_nearby_image_after = _has_nearby_image_after(after)
         if has_nearby_image_before or has_nearby_image_after:
             continue
@@ -1528,7 +1552,7 @@ def _extract_available_headings(content: str) -> list[dict]:
         before = content[: match.start()]
         after = content[match.end() :]
         # Reuse the same proximity guards used in _insert_block_after_heading
-        has_image_before = _has_nearby_image_before(before)
+        has_image_before = _has_blocking_image_before_heading(before, level)
         has_image_after = _has_nearby_image_after(after)
         if has_image_before or has_image_after:
             continue
