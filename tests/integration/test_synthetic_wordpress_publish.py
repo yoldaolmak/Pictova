@@ -60,6 +60,8 @@ class FakeWordPressState:
     calls: list[tuple[str, str]] = field(default_factory=list)
     denied_post_update: bool = False
     suppress_inserted_blocks: bool = False
+    concurrent_edit_on_precommit: bool = False
+    post_reads_after_upload: int = 0
     auth_failures: int = 0
     lock: threading.RLock = field(default_factory=threading.RLock)
 
@@ -114,6 +116,14 @@ class FakeWordPressHandler(BaseHTTPRequestHandler):
                 slug = parse_qs(route.query).get("slug", [""])[0]
                 return self._send(200, [{"id": POST_ID, "slug": SLUG}] if slug == SLUG else [])
             if route.path == f"/wp-json/wp/v2/posts/{POST_ID}":
+                if self.state.media:
+                    self.state.post_reads_after_upload += 1
+                    if self.state.concurrent_edit_on_precommit and self.state.post_reads_after_upload == 2:
+                        self.state.post_content += (
+                            "\n<!-- wp:paragraph --><p>Başka editörün yeni metni.</p><!-- /wp:paragraph -->"
+                        )
+                        self.state.modified_revision += 1
+                        self.state.concurrent_edit_on_precommit = False
                 return self._send(200, self.state.post_json())
         return self._send(404, {"code": "rest_post_invalid_id"})
 
@@ -521,3 +531,57 @@ def test_synthetic_paid_studio_requires_consent_and_never_calls_paid_network(wor
     _assert_verified_gutenberg(world, job, HEADING_A)
     assert len(login) == 1
     assert licensed == [("991", "synthetic-license-session")]
+
+
+def test_two_approved_images_publish_at_their_own_h2_headings(world):
+    plan = world.plan()
+    assert len(plan["candidates"]) == 2
+    selected = [candidate["id"] for candidate in plan["candidates"]]
+    response, accepted = world.apply(plan["plan_id"], selected)
+    assert response.status_code == 202, accepted
+    job = world.await_job(accepted["job_id"])
+    assert job["status"] == "success", job
+    result = job["result"]
+    assert result["inserted_blocks"] == 2
+    assert len(result["uploaded_media_ids"]) == 2
+
+    items = media_items_from_content(world.state.post_content)
+    assert [item["heading"] for item in items] == [HEADING_A, HEADING_B]
+    assert [item["media_id"] for item in items] == result["uploaded_media_ids"]
+    assert all(item["heading_level"] == 2 for item in items)
+    assert world.state.post_content.count("<!-- wp:image") == 2
+    assert world.state.post_content.count("<!-- wp:gallery") == 0
+    assert "Uçhisar hakkında korunan editör metni." in world.state.post_content
+    assert "Avanos hakkında korunan editör metni." in world.state.post_content
+    for media_id in result["uploaded_media_ids"]:
+        media = world.state.media[media_id]
+        assert media["post"] == POST_ID and media["metadata"]["alt_text"]
+        assert media["bytes"][:4] == b"RIFF"
+
+    manifest = load_post_media_manifest("synthetic", POST_ID)
+    assert manifest["expected_media_ids"] == result["uploaded_media_ids"]
+    assert assess_post_media(manifest, world.state.post_content)["state"] == "healthy"
+    assert world.state.auth_failures == 0
+
+
+def test_concurrent_editor_change_during_commit_is_not_overwritten(world):
+    plan = world.plan()
+    world.state.concurrent_edit_on_precommit = True
+    response, accepted = world.apply(plan["plan_id"], [plan["candidates"][0]["id"]])
+    assert response.status_code == 202, accepted
+
+    job = world.await_job(accepted["job_id"])
+    assert job["status"] == "failed", job
+    result = job["result"]
+    assert result["publish_reason"] == "post_content_conflict"
+    assert result["inserted_blocks"] == 0
+    assert result["rollback"]["deleted_media_ids"] == [901]
+    assert world.state.media == {}
+    assert "Başka editörün yeni metni." in world.state.post_content
+    assert "Sentetik Kapadokya yazısının orijinal giriş paragrafı." in world.state.post_content
+    assert "<!-- wp:image" not in world.state.post_content
+    assert not any(
+        verb == "POST" and path == f"/wp-json/wp/v2/posts/{POST_ID}"
+        for verb, path in world.state.calls
+    )
+    assert load_post_media_manifest("synthetic", POST_ID) is None
