@@ -1617,6 +1617,15 @@ def _rollback_unreferenced_uploads(
     }
 
 
+def _managed_media_identity(file_name: str, heading: object, heading_level: object) -> tuple[str, str, int]:
+    """Use one normalization contract for saved and newly selected media."""
+    return (
+        str(file_name or "").strip().casefold(),
+        str(heading or "").strip().casefold(),
+        int(heading_level or 0),
+    )
+
+
 def upload_images_batch(
     image_files: List[str],
     metadata_dict: Dict,  # filepath → {alt, title, caption, description}
@@ -1662,11 +1671,7 @@ def upload_images_batch(
         results["failed"].append({"error": f"Media manifest could not be read: {exc}"})
         return results
     existing_by_identity = {
-        (
-            str(item.get("file") or "").strip().casefold(),
-            str(item.get("heading") or "").strip().casefold(),
-            int(item.get("heading_level") or 0),
-        ): item
+        _managed_media_identity(item.get("file"), item.get("heading"), item.get("heading_level")): item
         for item in manifest.get("media_items", [])
         if item.get("media_id")
     }
@@ -1686,11 +1691,7 @@ def upload_images_batch(
             )
             continue
 
-        identity = (
-            Path(file_path).name.casefold(),
-            str(meta.get("heading") or "").strip().casefold(),
-            int(meta.get("heading_level") or 0),
-        )
+        identity = _managed_media_identity(Path(file_path).name, meta.get("heading"), meta.get("heading_level"))
         existing = existing_by_identity.get(identity)
         if existing:
             results["skipped"].append(
