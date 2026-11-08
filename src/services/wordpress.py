@@ -1691,9 +1691,7 @@ def upload_images_batch(
             )
             continue
 
-        identity = _managed_media_identity(
-            Path(file_path).name, meta.get("heading"), meta.get("heading_level")
-        )
+        identity = _managed_media_identity(Path(file_path).name, meta.get("heading"), meta.get("heading_level"))
         existing = existing_by_identity.get(identity)
         if existing:
             results["skipped"].append(
