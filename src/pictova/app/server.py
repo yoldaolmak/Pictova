@@ -226,7 +226,11 @@ def build_handler(*, token: str) -> type[BaseHTTPRequestHandler]:
             """Parse a bounded JSON request once, with a consistent error response."""
             payload, error = _load_json_body(self)
             if error:
-                status = HTTPStatus.REQUEST_ENTITY_TOO_LARGE if error == "request body too large" else HTTPStatus.BAD_REQUEST
+                status = (
+                    HTTPStatus.REQUEST_ENTITY_TOO_LARGE
+                    if error == "request body too large"
+                    else HTTPStatus.BAD_REQUEST
+                )
                 _json_response(self, status, {"status": "failed", "warning": error})
                 return None
             return payload
