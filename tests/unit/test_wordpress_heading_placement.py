@@ -2,18 +2,13 @@ from src.services.wordpress import _extract_available_headings, _insert_block_af
 
 
 def _heading_content(tail: str) -> str:
-    return (
-        '<!-- wp:heading {"level":3} -->\n'
-        '<h3>Demirkazık Tepesi</h3>\n'
-        '<!-- /wp:heading -->\n'
-        f'{tail}'
-    )
+    return '<!-- wp:heading {"level":3} -->\n' "<h3>Demirkazık Tepesi</h3>\n" "<!-- /wp:heading -->\n" f"{tail}"
 
 
 def test_heading_insertion_does_not_treat_distant_image_as_nearby():
     content = _heading_content(
-        '<!-- wp:paragraph --><p>Birinci paragraf</p><!-- /wp:paragraph -->\n'
-        '<!-- wp:paragraph --><p>İkinci paragraf</p><!-- /wp:paragraph -->\n'
+        "<!-- wp:paragraph --><p>Birinci paragraf</p><!-- /wp:paragraph -->\n"
+        "<!-- wp:paragraph --><p>İkinci paragraf</p><!-- /wp:paragraph -->\n"
         '<!-- wp:image {"id":9} --><figure><img class="wp-image-9"/></figure><!-- /wp:image -->'
     )
 
@@ -30,7 +25,7 @@ def test_heading_insertion_does_not_treat_distant_image_as_nearby():
 
 def test_heading_insertion_still_blocks_image_after_one_paragraph():
     content = _heading_content(
-        '<!-- wp:paragraph --><p>Tek paragraf</p><!-- /wp:paragraph -->\n'
+        "<!-- wp:paragraph --><p>Tek paragraf</p><!-- /wp:paragraph -->\n"
         '<!-- wp:image {"id":9} --><figure><img class="wp-image-9"/></figure><!-- /wp:image -->'
     )
 
@@ -46,11 +41,11 @@ def test_heading_insertion_still_blocks_image_after_one_paragraph():
 
 def test_previous_peer_heading_image_does_not_block_next_section():
     content = (
-        '<!-- wp:heading --><h2>Uçhisar Kalesi</h2><!-- /wp:heading -->'
+        "<!-- wp:heading --><h2>Uçhisar Kalesi</h2><!-- /wp:heading -->"
         '<!-- wp:image {"id":71} --><figure><img class="wp-image-71"/></figure><!-- /wp:image -->'
-        '<!-- wp:paragraph --><p>Uçhisar bölümü açıklaması</p><!-- /wp:paragraph -->'
-        '<!-- wp:heading --><h2>Avanos Çömlekçiliği</h2><!-- /wp:heading -->'
-        '<!-- wp:paragraph --><p>Avanos bölümü açıklaması</p><!-- /wp:paragraph -->'
+        "<!-- wp:paragraph --><p>Uçhisar bölümü açıklaması</p><!-- /wp:paragraph -->"
+        "<!-- wp:heading --><h2>Avanos Çömlekçiliği</h2><!-- /wp:heading -->"
+        "<!-- wp:paragraph --><p>Avanos bölümü açıklaması</p><!-- /wp:paragraph -->"
     )
 
     available = _extract_available_headings(content)
@@ -72,14 +67,20 @@ def test_previous_peer_heading_image_does_not_block_next_section():
 
 def test_image_after_parent_h2_still_blocks_immediate_h3_child():
     content = (
-        '<!-- wp:heading --><h2>Gezilecek Yerler</h2><!-- /wp:heading -->'
+        "<!-- wp:heading --><h2>Gezilecek Yerler</h2><!-- /wp:heading -->"
         '<!-- wp:image {"id":71} --><figure><img class="wp-image-71"/></figure><!-- /wp:image -->'
-        '<!-- wp:paragraph --><p>Genel açıklama</p><!-- /wp:paragraph -->'
+        "<!-- wp:paragraph --><p>Genel açıklama</p><!-- /wp:paragraph -->"
         '<!-- wp:heading {"level":3} --><h3>Uçhisar Kalesi</h3><!-- /wp:heading -->'
-        '<!-- wp:paragraph --><p>Kaleye dair ayrıntı</p><!-- /wp:paragraph -->'
+        "<!-- wp:paragraph --><p>Kaleye dair ayrıntı</p><!-- /wp:paragraph -->"
     )
 
-    assert _insert_block_after_heading(
-        content, heading_text="Uçhisar Kalesi", heading_level=3, block_html="SECOND-IMAGE",
-    ) == content
+    assert (
+        _insert_block_after_heading(
+            content,
+            heading_text="Uçhisar Kalesi",
+            heading_level=3,
+            block_html="SECOND-IMAGE",
+        )
+        == content
+    )
     assert {"text": "Uçhisar Kalesi", "level": 3} not in _extract_available_headings(content)

@@ -1405,8 +1405,7 @@ def _has_nearby_image_before(value: str) -> bool:
 
 
 _PREVIOUS_GUTENBERG_HEADING_RE = re.compile(
-    r"<!-- wp:heading(?:\s+\{.*?\})? -->\s*"
-    r"<h(?P<level>[1-6])\b[^>]*>.*?</h(?P=level)>\s*<!-- /wp:heading -->",
+    r"<!-- wp:heading(?:\s+\{.*?\})? -->\s*" r"<h(?P<level>[1-6])\b[^>]*>.*?</h(?P=level)>\s*<!-- /wp:heading -->",
     flags=re.S | re.I,
 )
 

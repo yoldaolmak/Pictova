@@ -153,8 +153,11 @@ class FakeWordPressHandler(BaseHTTPRequestHandler):
                 self.state.next_media_id += 1
                 source_url = f"http://127.0.0.1:{self.server.server_port}/uploads/{media_id}.webp"
                 self.state.media[media_id] = {
-                    "id": media_id, "bytes": raw, "source_url": source_url,
-                    "post": 0, "metadata": {},
+                    "id": media_id,
+                    "bytes": raw,
+                    "source_url": source_url,
+                    "post": 0,
+                    "metadata": {},
                 }
                 return self._send(201, {"id": media_id, "source_url": source_url})
 
@@ -282,13 +285,17 @@ def world(tmp_path, monkeypatch):
         # A configured HTTPS permalink is still mandatory for Studio. Only
         # authenticated WordPress REST transport is redirected to this loopback
         # instance; no application HTTP or publisher methods are mocked.
-        monkeypatch.setattr(wordpress.YOWordPressUploader, "SITE_ENDPOINTS", {
-            "synthetic": {
-                "url": "https://synthetic.pictova.invalid",
-                "user": "pictova-test-user",
-                "password": "pictova-test-password",
-            }
-        })
+        monkeypatch.setattr(
+            wordpress.YOWordPressUploader,
+            "SITE_ENDPOINTS",
+            {
+                "synthetic": {
+                    "url": "https://synthetic.pictova.invalid",
+                    "user": "pictova-test-user",
+                    "password": "pictova-test-password",
+                }
+            },
+        )
         original_init = wordpress.YOWordPressUploader.__init__
 
         def loopback_uploader(self, site="synthetic"):
@@ -302,7 +309,8 @@ def world(tmp_path, monkeypatch):
 
         original_processor = YOImageProcessor
         monkeypatch.setattr(
-            processor, "YOImageProcessor",
+            processor,
+            "YOImageProcessor",
             lambda work_dir=None: original_processor(work_dir=tmp_path / "work"),
         )
         monkeypatch.setattr(metadata, "_db_cached_metadata", lambda path: None)
@@ -337,10 +345,7 @@ def world(tmp_path, monkeypatch):
             assert kwargs["source"] == "auto"
             assert kwargs["post_context"]["slug"] == SLUG
             files = [value for value, _heading in catalog]
-            assignments = {
-                value: {"text": heading, "level": 2}
-                for value, heading in catalog
-            }
+            assignments = {value: {"text": heading, "level": 2} for value, heading in catalog}
             return {
                 "source": "synthetic_local_discovery",
                 "files": files,
@@ -360,9 +365,14 @@ def world(tmp_path, monkeypatch):
         app_thread = threading.Thread(target=app.serve_forever, daemon=True)
         app_thread.start()
         yield SyntheticWorld(
-            wp=wp, studio_server=app, state=state,
+            wp=wp,
+            studio_server=app,
+            state=state,
             base=f"http://127.0.0.1:{app.server_port}",
-            token=TOKEN, source_a=source_a, source_b=source_b, catalog=catalog,
+            token=TOKEN,
+            source_a=source_a,
+            source_b=source_b,
+            catalog=catalog,
         )
     finally:
         if app:
@@ -432,9 +442,7 @@ def test_studio_full_http_publish_verifies_real_webp_wp_blocks_and_manifest(worl
     media_id = _assert_verified_gutenberg(world, job, HEADING_A)
     assert rejected["id"] not in world.state.post_content
     assert len(world.state.media) == 1
-    assert [path for verb, path in world.state.calls if verb == "POST"].count(
-        "/wp-json/wp/v2/media"
-    ) == 1
+    assert [path for verb, path in world.state.calls if verb == "POST"].count("/wp-json/wp/v2/media") == 1
     assert ("POST", f"/wp-json/wp/v2/posts/{POST_ID}") in world.state.calls
     # Explicit one-use plan: no duplicate license/upload or content edit.
     refused, payload = world.apply(plan["plan_id"], [chosen["id"]])
@@ -501,11 +509,19 @@ def test_synthetic_paid_studio_requires_consent_and_never_calls_paid_network(wor
 
     preview_url = "https://synthetic-preview.pictova.invalid/license-991.jpg"
     world.catalog[:] = [(preview_url, HEADING_A)]
-    monkeypatch.setattr(selector, "_DEPOSIT_DISCOVERY_CACHE", {
-        ("Uchisar Castle", 20): [{
-            "id": "991", "title": "Uçhisar Kalesi", "preview_url": preview_url,
-        }]
-    })
+    monkeypatch.setattr(
+        selector,
+        "_DEPOSIT_DISCOVERY_CACHE",
+        {
+            ("Uchisar Castle", 20): [
+                {
+                    "id": "991",
+                    "title": "Uçhisar Kalesi",
+                    "preview_url": preview_url,
+                }
+            ]
+        },
+    )
     login = []
     licensed = []
 
@@ -580,8 +596,5 @@ def test_concurrent_editor_change_during_commit_is_not_overwritten(world):
     assert "Başka editörün yeni metni." in world.state.post_content
     assert "Sentetik Kapadokya yazısının orijinal giriş paragrafı." in world.state.post_content
     assert "<!-- wp:image" not in world.state.post_content
-    assert not any(
-        verb == "POST" and path == f"/wp-json/wp/v2/posts/{POST_ID}"
-        for verb, path in world.state.calls
-    )
+    assert not any(verb == "POST" and path == f"/wp-json/wp/v2/posts/{POST_ID}" for verb, path in world.state.calls)
     assert load_post_media_manifest("synthetic", POST_ID) is None
