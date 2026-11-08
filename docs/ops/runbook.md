@@ -40,4 +40,12 @@ pictova guard --site yoldaolmak --post 265713
 python3 -m pytest -q
 ```
 
+To validate publishing safely without touching a real WordPress site:
+
+```bash
+python3 -m pytest tests/integration/test_synthetic_wordpress_publish.py -q
+```
+
+This drives real Studio HTTP, native image processing/quality gate, authenticated WordPress-like REST media writes, Gutenberg readback, manifest, rollback and conflict handling. Only external source discovery/visual-model evidence are deterministic test fixtures. No live WordPress publication, paid download or real-world image identity is asserted.
+
 Offline tests cannot validate live WordPress publication or real image identity. For index operations see [Indexing](indexing.md); for authenticated local HTTP see [API](../reference/http-api.md).

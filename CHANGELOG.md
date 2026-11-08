@@ -12,6 +12,8 @@
 
 
 ### Added
+- Isolated synthetic WordPress REST end-to-end suite exercising Studio HTTP approval, real JPEG-to-WebP processing, one- and two-section Gutenberg placement/readback, manifest, rollback, editor conflicts and paid consent without real credentials or license charges.
+- Gutenberg heading proximity now respects section boundaries: an image belonging to a previous peer H2/H3 no longer blocks a valid image in the next section; parent-to-child proximity restrictions remain in place.
 - Pictova Studio: local URL-based preview, heading placement, candidate rejection and single-use approval.
 - Separate consent for licensed stock downloads and revalidation of approved post/image identities.
 - Offline OpenAI-compatible model contract tests and Studio HTTP/security regressions.

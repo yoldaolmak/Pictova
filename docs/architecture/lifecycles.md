@@ -55,7 +55,9 @@ retain local-only diagnostics. No asynchronous job is silently resumed.
    Jobs are claimed per asset; concurrent workers cannot process the same
    active lease. A scanning lease older than 90 minutes may be reclaimed.
 4. Verify the actual WordPress article and a real original photo before
-   declaring an end-to-end production result. Automated tests use isolated data.
+   declaring an end-to-end production result. The synthetic WordPress end-to-end
+   tests run real HTTP publishing and readback against an isolated loopback
+   REST emulator, not an installed WordPress instance.
 
 WordPress REST optimistic concurrency is not an atomic compare-and-swap:
 an external editor could still write in the narrow interval between the
