@@ -389,3 +389,88 @@ def test_concurrent_studio_approval_cannot_enqueue_twice(tmp_path, monkeypatch):
 
     assert not errors
     assert len(jobs) == 1
+
+
+
+def test_review_candidate_keeps_local_identity_private_and_rejects_unverified_sources(tmp_path):
+    valid = {("Uçhisar Kalesi", 2)}
+    heading = {"text": "Uçhisar Kalesi", "level": 2}
+    local = _photo(tmp_path, "uchisar.jpg")
+
+    assert studio._review_candidate(local, None, "plan-1", valid) is None
+    assert studio._review_candidate(local, {"text": "Other heading", "level": 2}, "plan-1", valid) is None
+    assert studio._review_candidate(42, heading, "plan-1", valid) is None
+
+    identity, private, public = studio._review_candidate(local, heading, "plan-1", valid)
+    assert private["path"] == local
+    assert "identity" in private
+    assert public["id"] == identity
+    assert public["heading"] == "Uçhisar Kalesi"
+    assert public["local_preview"] is True
+    assert public["available"] is True
+    assert public["preview_url"] == ""
+    assert local not in json.dumps(public)
+    assert local not in public.values()
+
+    missing_id, missing, missing_public = studio._review_candidate(
+        str(tmp_path / "missing.jpg"), heading, "plan-1", valid
+    )
+    assert missing_id and missing["enabled"] is False
+    assert missing_public["available"] is False
+    assert missing_public["local_preview"] is False
+
+    icloud_id, icloud, icloud_public = studio._review_candidate("icloud://photo", heading, "plan-1", valid)
+    assert icloud_id and icloud["enabled"] is False
+    assert icloud_public["source"] == "icloud"
+    assert icloud_public["paid"] is False
+
+    remote_id, remote, remote_public = studio._review_candidate(
+        "https://untrusted.invalid/unlisted.jpg", heading, "plan-1", valid
+    )
+    assert remote_id and remote["enabled"] is False
+    assert remote_public["paid"] is False
+    assert remote_public["preview_url"] == ""
+
+
+def test_approved_selection_validates_source_identity_before_posting(tmp_path):
+    original = _photo(tmp_path, "source.jpg")
+    first = {"path": original, "identity": studio._file_identity(original), "heading": {"text": "Uçhisar", "level": 2}}
+    result = studio._load_approved_selection([first])
+    assert result["files"] == [original]
+    assert result["heading_assignments"][original] == {"text": "Uçhisar", "level": 2}
+
+    Path(original).write_bytes(b"changed after review")
+    with pytest.raises(studio.StudioError, match="değişti"):
+        studio._load_approved_selection([first])
+
+
+def test_approved_selection_reuses_paid_session_and_rejects_duplicate_download_paths(tmp_path, monkeypatch):
+    from src.pictova.providers import deposit
+
+    one = _photo(tmp_path, "one.jpg")
+    two = _photo(tmp_path, "two.jpg")
+    logins = []
+    downloads = []
+
+    def fake_login():
+        logins.append("session")
+        return "fake-session"
+
+    def fake_download(asset_id, session):
+        downloads.append((asset_id, session))
+        return {"11": one, "22": two}[asset_id]
+
+    monkeypatch.setattr(deposit, "_login", fake_login)
+    monkeypatch.setattr(deposit, "download", fake_download)
+    chosen = [
+        {"deposit_id": "11", "heading": {"text": "Uçhisar", "level": 2}},
+        {"deposit_id": "22", "heading": {"text": "Avanos", "level": 2}},
+    ]
+    result = studio._load_approved_selection(chosen)
+    assert result["files"] == [one, two]
+    assert downloads == [("11", "fake-session"), ("22", "fake-session")]
+    assert logins == ["session"]
+
+    monkeypatch.setattr(deposit, "download", lambda asset_id, session: one)
+    with pytest.raises(studio.StudioError, match="iki kez"):
+        studio._load_approved_selection(chosen)
