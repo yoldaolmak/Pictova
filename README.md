@@ -44,7 +44,7 @@ pictova attach --site yoldaolmak --post 265713 --count 4 --source auto --engine 
 - Heading-aware matching, image processing, visual metadata and guarded Gutenberg placement.
 - No image generation. Candidate metadata is **not** proof of what an image depicts.
 - Missing matches remain empty. CLI direct-source and legacy paths do not share every native selection guarantee.
-- CI verifies offline contracts, **not** real-world place identification or a live WordPress deployment.
+- CI verifies native publication against an **isolated synthetic WordPress REST server**: real Studio HTTP approval, WebP upload, Gutenberg content readback, manifest and rollback. It does **not** prove real-world place identification or a live WordPress deployment.
 
 ## Development
 
