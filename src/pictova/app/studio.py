@@ -135,6 +135,90 @@ def _deposit_asset(preview: str) -> tuple[str, str] | None:
     return None
 
 
+def _review_candidate(
+    file: Any,
+    heading: Any,
+    plan_id: str,
+    valid_headings: set[tuple[str, int]],
+) -> tuple[str, dict[str, Any], dict[str, Any]] | None:
+    """Separate trusted, server-side asset identities from browser-safe previews."""
+    if not isinstance(file, str) or not file or not isinstance(heading, dict):
+        return None
+    heading_key = (str(heading.get("text") or "").strip(), int(heading.get("level") or 0))
+    if not heading_key[0] or heading_key not in valid_headings:
+        return None
+
+    asset_id = secrets.token_urlsafe(12)
+    entry: dict[str, Any] = {"path": file, "heading": dict(heading)}
+    reason = ""
+    preview_url = ""
+    kind = ""
+    title = ""
+    if file.startswith("https://"):
+        deposit = _deposit_asset(file)
+        if deposit:
+            entry["deposit_id"], title = deposit
+            kind = "deposit"
+            preview_url = file
+        else:
+            reason = "Sağlayıcı kimliği doğrulanamadı"
+    elif file.startswith("icloud://"):
+        reason = "iCloud görselinin önizlemesi için CLI kullanın"
+        kind = "icloud"
+    else:
+        kind = "local"
+        title = Path(file).name
+        try:
+            entry["identity"] = _file_identity(file)
+            preview_url = f"/studio/preview?plan={plan_id}&candidate={asset_id}"
+        except (OSError, StudioError):
+            reason = "Yerel görsel okunamadı"
+
+    entry["enabled"] = not bool(reason) and bool(preview_url)
+    summary = {
+        "id": asset_id,
+        "heading": heading_key[0],
+        "level": heading_key[1],
+        "source": kind,
+        "title": title or "Görsel",
+        "preview_url": preview_url if kind == "deposit" else "",
+        "local_preview": kind == "local" and entry["enabled"],
+        "available": entry["enabled"],
+        "reason": reason,
+        "paid": kind == "deposit",
+    }
+    return asset_id, entry, summary
+
+
+def _load_approved_selection(chosen: list[dict[str, Any]]) -> Dict[str, Any]:
+    """Revalidate approved local files or fetch licensed assets at execution time.
+
+    Only the native attach engine invokes this loader after the post digest
+    check. No provider is contacted during plan creation or review.
+    """
+    files: list[str] = []
+    assignments: dict[str, dict[str, Any]] = {}
+    session_id = None
+    for asset in chosen:
+        if "identity" in asset:
+            if _file_identity(asset["path"]) != asset["identity"]:
+                raise StudioError("Seçilen yerel görsel değişti; yeni plan gerekli")
+            path = asset["path"]
+        elif "deposit_id" in asset:
+            from src.pictova.providers import deposit
+
+            if session_id is None:
+                session_id = deposit._login()
+            path = deposit.download(asset["deposit_id"], session_id)
+        else:
+            raise StudioError("Doğrulanmamış kaynak yayımlanamaz")
+        if path in assignments:
+            raise StudioError("Bir görsel iki kez yerleştirilemez")
+        files.append(path)
+        assignments[path] = dict(asset["heading"])
+    return {"source": "studio", "files": files, "heading_assignments": assignments, "warnings": []}
+
+
 class StudioPlans:
     """Bounded, expiring in-memory editorial approval sessions."""
 
@@ -165,57 +249,12 @@ class StudioPlans:
         candidates: dict[str, dict[str, Any]] = {}
         visible: list[dict[str, Any]] = []
         for file in selection.get("files") or []:
-            if not isinstance(file, str) or not file:
+            review = _review_candidate(file, assignments.get(file), plan_id, valid_headings)
+            if review is None:
                 continue
-            heading = assignments.get(file)
-            if not isinstance(heading, dict):
-                continue
-            heading_key = (str(heading.get("text") or "").strip(), int(heading.get("level") or 0))
-            if not heading_key[0] or heading_key not in valid_headings:
-                continue
-
-            asset_id = secrets.token_urlsafe(12)
-            entry: dict[str, Any] = {"path": file, "heading": dict(heading)}
-            reason = ""
-            preview_url = ""
-            kind = ""
-            title = ""
-            if file.startswith("https://"):
-                deposit = _deposit_asset(file)
-                if deposit:
-                    entry["deposit_id"], title = deposit
-                    kind = "deposit"
-                    preview_url = file
-                else:
-                    reason = "Sağlayıcı kimliği doğrulanamadı"
-            elif file.startswith("icloud://"):
-                reason = "iCloud görselinin önizlemesi için CLI kullanın"
-                kind = "icloud"
-            else:
-                kind = "local"
-                title = Path(file).name
-                try:
-                    entry["identity"] = _file_identity(file)
-                    preview_url = f"/studio/preview?plan={plan_id}&candidate={asset_id}"
-                except (OSError, StudioError):
-                    reason = "Yerel görsel okunamadı"
-
-            entry["enabled"] = not bool(reason) and bool(preview_url)
+            asset_id, entry, summary = review
             candidates[asset_id] = entry
-            visible.append(
-                {
-                    "id": asset_id,
-                    "heading": heading_key[0],
-                    "level": heading_key[1],
-                    "source": kind,
-                    "title": title or "Görsel",
-                    "preview_url": preview_url if kind == "deposit" else "",
-                    "local_preview": kind == "local" and entry["enabled"],
-                    "available": entry["enabled"],
-                    "reason": reason,
-                    "paid": kind == "deposit",
-                }
-            )
+            visible.append(summary)
 
         with self._lock:
             self._prune()
@@ -331,35 +370,12 @@ class StudioPlans:
             if failure:
                 return failure
 
-            def chosen_selection() -> Dict[str, Any]:
-                files = []
-                assignments = {}
-                session_id = None
-                for asset in work["chosen"]:
-                    if "identity" in asset:
-                        if _file_identity(asset["path"]) != asset["identity"]:
-                            raise StudioError("Seçilen yerel görsel değişti; yeni plan gerekli")
-                        path = asset["path"]
-                    elif "deposit_id" in asset:
-                        from src.pictova.providers import deposit
-
-                        if session_id is None:
-                            session_id = deposit._login()
-                        path = deposit.download(asset["deposit_id"], session_id)
-                    else:
-                        raise StudioError("Doğrulanmamış kaynak yayımlanamaz")
-                    if path in assignments:
-                        raise StudioError("Bir görsel iki kez yerleştirilemez")
-                    files.append(path)
-                    assignments[path] = dict(asset["heading"])
-                return {"source": "studio", "files": files, "heading_assignments": assignments, "warnings": []}
-
             result = execute_native_attach(
                 site=site,
                 request=request,
                 post_context=context,
                 constraints=constraints,
-                selection_loader=chosen_selection,
+                selection_loader=lambda: _load_approved_selection(work["chosen"]),
                 expected_post_digest=work["digest"],
             )
             return _finish_attach_job(result)
