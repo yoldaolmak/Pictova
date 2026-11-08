@@ -56,10 +56,7 @@ def test_previous_peer_heading_image_does_not_block_next_section():
         content,
         heading_text="Avanos Çömlekçiliği",
         heading_level=2,
-        block_html=(
-            '<!-- wp:image {"id":72} -->'
-            '<figure><img class="wp-image-72"/></figure><!-- /wp:image -->'
-        ),
+        block_html=('<!-- wp:image {"id":72} -->' '<figure><img class="wp-image-72"/></figure><!-- /wp:image -->'),
     )
 
     assert updated != content
