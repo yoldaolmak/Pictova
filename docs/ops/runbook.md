@@ -48,6 +48,6 @@ To validate publishing safely without touching a real WordPress site:
 python3 -m pytest tests/integration/test_synthetic_wordpress_publish.py -q
 ```
 
-This drives real Studio HTTP, native image processing/quality gate, authenticated WordPress-like REST media writes, Gutenberg readback, manifest, rollback and conflict handling. Only external source discovery/visual-model evidence are deterministic test fixtures. No live WordPress publication, paid download or real-world image identity is asserted.
+This drives real Studio HTTP, native image processing/quality gate, authenticated WordPress-like REST media writes, Gutenberg readback, manifest, rollback and conflict handling. Only external source discovery/visual-model evidence are deterministic test fixtures. No production-site publication, paid download or real-world image identity is asserted. The separate `Live WordPress Sandbox` workflow tests real installed WordPress with a retained photo, media readback and guarded rollback.
 
 For index operations see [Indexing](indexing.md); for authenticated local HTTP see [API](../reference/http-api.md).

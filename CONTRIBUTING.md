@@ -23,6 +23,6 @@ Use a feature branch from `main`. Keep each PR focused. Add a regression for the
 - Keep existing CLI result and argument contracts compatible.
 - Never put credentials, private photo paths or raw post content in tests or issue reports.
 
-Update only the relevant documentation and `CHANGELOG.md`. Describe verified behavior, not intended capability. CI uses mocked integrations and does not prove real-world visual accuracy or a live publish.
+Update only the relevant documentation and `CHANGELOG.md`. Describe verified behavior, not intended capability. The REST-emulator suite and isolated installed WordPress sandbox do not prove production-site results or real-world visual accuracy.
 
 For source integrations, see [Adding sources](docs/guides/adding-sources.md). For trust limits, see [Security](SECURITY.md).

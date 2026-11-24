@@ -31,9 +31,10 @@ automatic resumption of writes or paid work.
 The legacy engine retains compatibility only. Shared publishing outcome
 checks do not make its selection and safeguards equivalent to native.
 
-CI exercises synthetic image/model evidence and actual HTTP against a
-loopback WordPress REST emulator, including insertion, readback, conflict
-refusal and rollback. It does not establish live-site results or photo identity.
+CI exercises Studio and native publishing against a loopback REST emulator.
+A separate installed WordPress sandbox tests a retained real photograph,
+media upload, Gutenberg readback and guarded rollback. Neither establishes
+production-site results or automatic photo identity.
 
 [Selection](../concepts/semantic-selection.md) · [Operation lifecycles](lifecycles.md) ·
 [Engine modules](engine-modules.md) · [Security](../../SECURITY.md)
