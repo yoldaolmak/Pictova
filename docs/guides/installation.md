@@ -4,7 +4,7 @@
 
 - macOS or Linux
 - Python 3.10–3.12 (CI-tested)
-- WordPress 5.8+ with Application Passwords enabled
+- WordPress with Application Passwords enabled
 - (Optional) Mac Photos library for visual memory
 
 ## Step 1: Clone the Repository
@@ -44,7 +44,8 @@ cp .env.example .env
 ### Minimum Configuration
 
 ```bash
-# WordPress — required for the yoldaolmak profile
+# Primary editorial WordPress account
+WP_URL=https://your-wordpress-host.example
 WP_USER=your-wordpress-username
 WP_APP_PASSWORD=your-app-password
 

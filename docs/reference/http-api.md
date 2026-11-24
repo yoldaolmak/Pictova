@@ -24,13 +24,13 @@ Requests must use `Content-Type: application/json`, at most 1 MiB. Existing non-
 | `GET /studio/preview?plan=…&candidate=…` | Authenticated local preview |
 | `POST /studio/apply` | Apply only accepted candidate IDs; licensed assets require separate consent |
 
-Example:
+Example (replace `123` with the intended post ID; this request only plans):
 
 ```bash
 curl -sS http://127.0.0.1:8040/plan \
   -H "Authorization: Bearer $PICTOVA_HTTP_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"site":"yoldaolmak","post_id":265713,"count":4,"source":"auto"}'
+  -d '{"site":"yoldaolmak","post_id":123,"count":4,"source":"auto"}'
 ```
 
 Studio uses the same local HTTP server. Start it with `pictova studio` to open a browser with a temporary token, or open `/studio` and enter the existing token.

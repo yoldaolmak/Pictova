@@ -20,9 +20,9 @@ boundary.
 
 ## Exact-match rule
 
-For a numbered destination or named-product heading, Pictova requires the
-specific anchor in the candidate evidence. A generic waterfall cannot satisfy
-“Kapuzbaşı Şelaleleri”; a beach portrait cannot satisfy an application heading.
+For a named place or travel subject, Pictova requires the specific anchor
+in candidate evidence. A generic waterfall cannot satisfy
+“Kapuzbaşı Şelaleleri”.
 If a source cannot provide an exact candidate, that slot stays empty and the
 receipt reports why.
 
@@ -32,22 +32,25 @@ resumed licensed images are capped at 64 MiB, and nonnumeric asset IDs are
 rejected before any filesystem or licensing operation. Explicit
 `local`, `vil`, and `unsplash` modes are not interchangeable with that gate:
 a caller-provided path or free-provider search ranking is not independent
-identity evidence. Use a reviewed plan for direct source modes.
+identity evidence. Inspect direct-source candidates yourself before publishing; Studio uses the
+native auto route only.
 
 Selection hints such as the article title or heading never become visual facts
 in image metadata.
 
 ## Choosing a source
 
+Set `POST_ID` to the selected post ID before running commands.
+
 ```bash
 # Local index only
-pictova plan --site yoldaolmak --post 265713 --source semantic
+pictova plan --site yoldaolmak --post "$POST_ID" --source semantic
 
 # Licensed exact candidates only
-pictova plan --site yoldaolmak --post 265713 --source deposit
+pictova plan --site yoldaolmak --post "$POST_ID" --source deposit
 
 # Let the native selector use its source chain
-pictova plan --site yoldaolmak --post 265713 --source auto
+pictova plan --site yoldaolmak --post "$POST_ID" --source auto
 ```
 
 `plan` previews candidates. A subsequent `attach` runs the same selection

@@ -2,10 +2,12 @@
 
 ## Preview
 
+Set `POST_ID` to an explicitly selected test or editorial post ID before running commands.
+
 ```bash
 pictova health
-pictova review --site yoldaolmak --post 265713
-pictova plan --site yoldaolmak --post 265713 --count 4 --source auto
+pictova review --site yoldaolmak --post "$POST_ID"
+pictova plan --site yoldaolmak --post "$POST_ID" --count 4 --source auto
 ```
 
 Inspect target headings, candidate evidence and warnings. A missing exact match is not a failure to be filled with a generic image.
@@ -13,8 +15,8 @@ Inspect target headings, candidate evidence and warnings. A missing exact match 
 ## Process and publish
 
 ```bash
-pictova process --site yoldaolmak --post 265713 --count 4 --source auto
-pictova attach --site yoldaolmak --post 265713 --count 4 --source auto --engine native
+pictova process --site yoldaolmak --post "$POST_ID" --count 4 --source auto
+pictova attach --site yoldaolmak --post "$POST_ID" --count 4 --source auto --engine native
 ```
 
 `process` can download/licence images but does not alter WordPress. `attach` writes. For interactive approval of exact candidates, use `pictova studio`.
@@ -22,7 +24,7 @@ pictova attach --site yoldaolmak --post 265713 --count 4 --source auto --engine 
 Inspect managed media without a write:
 
 ```bash
-pictova guard --site yoldaolmak --post 265713
+pictova guard --site yoldaolmak --post "$POST_ID"
 ```
 
 `guard --repair`, `--reposition`, `--adopt` and `--reset` write. Back up the post first. Mixed-ownership galleries are rejected rather than deleted.
@@ -48,4 +50,4 @@ python3 -m pytest tests/integration/test_synthetic_wordpress_publish.py -q
 
 This drives real Studio HTTP, native image processing/quality gate, authenticated WordPress-like REST media writes, Gutenberg readback, manifest, rollback and conflict handling. Only external source discovery/visual-model evidence are deterministic test fixtures. No live WordPress publication, paid download or real-world image identity is asserted.
 
-Offline tests cannot validate live WordPress publication or real image identity. For index operations see [Indexing](indexing.md); for authenticated local HTTP see [API](../reference/http-api.md).
+For index operations see [Indexing](indexing.md); for authenticated local HTTP see [API](../reference/http-api.md).
