@@ -10,6 +10,8 @@ source. A Mac Photos index and DepositPhotos credentials are optional.
 
 ## Install
 
+Set `POST_ID` to an explicitly selected test or editorial post ID before running commands.
+
 ```bash
 git clone https://github.com/yoldaolmak/Pictova.git
 cd Pictova
@@ -38,8 +40,8 @@ post is readable or that a source will return exact images.
 ## Review and plan
 
 ```bash
-pictova review --site yoldaolmak --post 265713
-pictova plan --site yoldaolmak --post 265713 --count 4 --source auto
+pictova review --site yoldaolmak --post "$POST_ID"
+pictova plan --site yoldaolmak --post "$POST_ID" --count 4 --source auto
 ```
 
 Check the heading assignments, selected candidates and warnings. An empty
@@ -49,10 +51,10 @@ list can mean no candidate supported the named subject, not a broken run.
 
 ```bash
 # Download/prepare locally; does not change WordPress.
-pictova process --site yoldaolmak --post 265713 --count 4 --source auto
+pictova process --site yoldaolmak --post "$POST_ID" --count 4 --source auto
 
 # Writes to WordPress. Run only after reviewing the plan.
-pictova attach --site yoldaolmak --post 265713 --count 4 --source auto --engine native
+pictova attach --site yoldaolmak --post "$POST_ID" --count 4 --source auto --engine native
 ```
 
 A request for four images may select fewer or none. Do not bypass exact

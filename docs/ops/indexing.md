@@ -38,7 +38,17 @@ PY
 python3 scripts/fast_scan.py --workers 1 --limit 50
 ```
 
-`PICTOVA_VISION_DAILY_LIMIT` caps completed scans per day; `0` disables this guard. Confirm data and provider costs before changing the limit.
+`PICTOVA_VISION_DAILY_LIMIT` caps attempted scans per day, including failures and in-progress work; `0` disables this guard. Confirm data and provider costs before changing the limit.
+
+Retry failed assets explicitly (never reprocess `done` or skipped records):
+
+```bash
+python3 scripts/fast_scan.py --workers 1 --limit 50 --retry-errors
+```
+
+The scanner claims each record atomically as `scanning`, preventing duplicate
+work across concurrent processes. An interrupted lease older than 90 minutes
+can be reclaimed. A superseded worker may not overwrite the new result.
 
 ## Recover
 

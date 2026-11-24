@@ -38,6 +38,7 @@ def test_run_attach_job_derives_location_and_constraints(monkeypatch):
     # The legacy orchestrator is imported inside execute_legacy_attach now, so
     # it has to be patched on its own module rather than on the engine.
     import src.main as legacy_main
+
     monkeypatch.setattr(legacy_main, "YOOrchestrator", FakeOrchestrator)
     monkeypatch.setattr(
         attach_engine,
@@ -115,16 +116,27 @@ def test_derive_location_query_uses_destination_from_branded_title():
     from src.pictova.engine.attach import derive_location_query
 
     assert derive_location_query({"slug": "", "title": "Karaburun Gezi Rehberi — Penovate"}) == "karaburun"
-    assert derive_location_query({"slug": "", "title": "Karaburun Gezi Rehberi: Karaburun Gezilecek Yerler"}) == "karaburun"
+    assert (
+        derive_location_query({"slug": "", "title": "Karaburun Gezi Rehberi: Karaburun Gezilecek Yerler"})
+        == "karaburun"
+    )
 
 
 def test_cli_parser_exposes_native_local_and_auto_sources():
     from src.pictova.app.cli import build_parser
 
     parser = build_parser()
-    local_args = parser.parse_args([
-        "attach", "--post", "267970", "--source", "local", "--query", "/tmp/a.jpg",
-    ])
+    local_args = parser.parse_args(
+        [
+            "attach",
+            "--post",
+            "267970",
+            "--source",
+            "local",
+            "--query",
+            "/tmp/a.jpg",
+        ]
+    )
     auto_args = parser.parse_args(["plan", "--post", "267970", "--source", "auto"])
     guard_args = parser.parse_args(["guard", "--post", "267970", "--repair"])
 
@@ -294,10 +306,11 @@ def test_run_attach_job_native_engine_uses_native_pipeline(monkeypatch):
     monkeypatch.setattr(
         attach_engine,
         "publish_processed_images",
-        lambda **kwargs: seen.update(kwargs) or {
+        lambda **kwargs: seen.update(kwargs)
+        or {
             "uploaded": [{"media_id": 91}, {"media_id": 92}],
             "failed": [],
-            "content_update": {"inserted": 2},
+            "content_update": {"success": True, "updated": True, "inserted": 2},
         },
     )
 
@@ -482,7 +495,7 @@ def test_run_attach_job_publishes_partial_exact_selection(monkeypatch):
         lambda **kwargs: {
             "uploaded": [{"media_id": 1}, {"media_id": 2}],
             "failed": [],
-            "content_update": {"inserted": 2},
+            "content_update": {"success": True, "updated": True, "inserted": 2},
         },
     )
 
@@ -511,7 +524,7 @@ def test_insert_before_first_h2_preserves_gutenberg_heading_block():
 
     updated = wordpress._insert_before_first_h2(content, block)
 
-    assert "<!-- wp:heading -->\n<h2 class=\"wp-block-heading\">Baslik</h2>\n<!-- /wp:heading -->" in updated
+    assert '<!-- wp:heading -->\n<h2 class="wp-block-heading">Baslik</h2>\n<!-- /wp:heading -->' in updated
     assert "<!-- wp:heading -->\n\n<!-- wp:image -->" not in updated
     assert updated.index(block) < updated.index("<!-- wp:heading -->")
 
@@ -525,6 +538,7 @@ def test_build_native_metadata_map_raises_without_any_vision_source(monkeypatch)
     monkeypatch.setattr(metadata_engine, "has_any_vision_source", lambda: False)
 
     import pytest
+
     with pytest.raises(RuntimeError, match="Hiç vision kaynağı bulunamadı"):
         metadata_engine.build_native_metadata_map(
             ["roma-1_yo.webp"],

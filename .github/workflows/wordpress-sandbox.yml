@@ -33,9 +33,11 @@ jobs:
           WORDPRESS_DB_NAME: pictova
           WORDPRESS_CONFIG_EXTRA: "define('WP_ENVIRONMENT_TYPE', 'local');"
         ports:
-          - 8080:80
+          - 127.0.0.1:8080:80
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

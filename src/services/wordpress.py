@@ -259,14 +259,13 @@ class YOWordPressUploader:
         except requests.exceptions.RequestException:
             return {"status": "unreachable"}
         if response.status_code == 200:
-            # HTTP 200 is not proof of an authenticated REST session: a
-            # misconfigured permalink or proxy can redirect /wp-json to
-            # the site's public HTML homepage. Refuse before any upload.
+            # A successful HTTP response must actually identify an authenticated REST user.
             try:
                 identity = response.json()
             except ValueError:
                 identity = None
-            if isinstance(identity, dict) and isinstance(identity.get("id"), int) and identity["id"] > 0:
+            user_id = identity.get("id") if isinstance(identity, dict) else None
+            if type(user_id) is int and user_id > 0:
                 return {"status": "ready", "http_status": 200}
             return {"status": "unreachable", "http_status": 200, "reason": "invalid_rest_identity"}
         if response.status_code in {401, 403}:
@@ -302,6 +301,7 @@ class YOWordPressUploader:
             "Content-Disposition": f'attachment; filename="{file_p.name}"',
             "Content-Type": "image/webp",
         }
+        created_media_id = None
 
         try:
             resp = self.session.post(
@@ -313,7 +313,10 @@ class YOWordPressUploader:
             resp.raise_for_status()
 
             media = resp.json()
-            media_id = media["id"]
+            media_id = int(media["id"])
+            if media_id < 1:
+                raise ValueError("WordPress returned an invalid media ID")
+            created_media_id = media_id
 
             # Update media metadata
             update_data = {
@@ -340,12 +343,30 @@ class YOWordPressUploader:
                 "file": file_p.name,
             }
 
-        except requests.exceptions.RequestException as e:
-            return {
-                "success": False,
-                "error": _request_error_detail(e),
-                "file": file_p.name,
-            }
+        except (requests.exceptions.RequestException, ValueError, TypeError, KeyError) as exc:
+            detail = (
+                _request_error_detail(exc)
+                if isinstance(exc, requests.exceptions.RequestException)
+                else f"WordPress media response invalid ({type(exc).__name__})"
+            )
+            failure = {"success": False, "error": detail, "file": file_p.name}
+            if created_media_id is None:
+                # The HTTP media POST may have committed before a timeout.
+                failure["upload_unconfirmed"] = True
+                return failure
+
+            # New media exists but its metadata failed; it is not yet linked
+            # to a post. Compensate before letting the batch continue.
+            try:
+                deleted = self.delete_media(created_media_id)
+            except Exception:
+                deleted = {"success": False, "error": "cleanup raised an error"}
+            if deleted.get("success"):
+                failure["reverted_media_id"] = created_media_id
+            else:
+                failure["orphaned_media_id"] = created_media_id
+                failure["cleanup_error"] = str(deleted.get("error") or "cleanup not verified")
+            return failure
 
     def attach_to_post(
         self,
@@ -945,6 +966,21 @@ class YOWordPressUploader:
                 "missing_media_ids": missing_ids,
             }
 
+        # A class attribute containing the expected ID is insufficient:
+        # verify its Gutenberg image block, URL and placement before sealing
+        # the durable manifest as healthy.
+        observed = assess_post_media(
+            {"expected_media_ids": expected_ids, "media_items": media_items},
+            content_raw,
+        )
+        if observed["state"] != "healthy":
+            return {
+                "success": False,
+                "code": "post_update_verification_failed",
+                "error": "WordPress media blocks or approved H2/H3 placement could not be verified",
+                **observed,
+            }
+
         try:
             manifest = save_post_media_manifest(
                 site=self.site,
@@ -1041,6 +1077,11 @@ class YOWordPressUploader:
                     post_id,
                     manifest.get("media_items", []),
                     allow_manifest_repair=True,
+                    reposition_managed=bool(
+                        integrity.get("misplaced_media_ids")
+                        or integrity.get("duplicate_media_ids")
+                        or integrity.get("changed_url_media_ids")
+                    ),
                 )
                 if not result.get("success"):
                     return {
@@ -1371,6 +1412,34 @@ def _has_nearby_image_before(value: str) -> bool:
     return _trailing_gutenberg_block_start(stripped[:paragraph_start], "image") is not None
 
 
+_PREVIOUS_GUTENBERG_HEADING_RE = re.compile(
+    r"<!-- wp:heading(?:\s+\{.*?\})? -->\s*" r"<h(?P<level>[1-6])\b[^>]*>.*?</h(?P=level)>\s*<!-- /wp:heading -->",
+    flags=re.S | re.I,
+)
+
+
+def _has_blocking_image_before_heading(content_before: str, target_level: int) -> bool:
+    """Only count an image above a heading when it is in the same section.
+
+    An image after a previous H2/H3 belongs to that previous section, even
+    when there is only one paragraph before the next peer heading. Treating
+    it as a neighbour of the next heading prevents legitimate per-H2 media.
+    An introduction image or an image after a parent H2 before its first H3
+    still blocks a too-close insertion.
+    """
+    if not _has_nearby_image_before(content_before):
+        return False
+    # An image directly adjacent to the new heading still blocks it:
+    # even if from a previous section, stacking it against the next H3
+    # is a deliberate editorial safety boundary.
+    if _trailing_gutenberg_block_start(content_before.rstrip(), "image") is not None:
+        return True
+    previous = list(_PREVIOUS_GUTENBERG_HEADING_RE.finditer(content_before))
+    if not previous:
+        return True
+    return int(previous[-1].group("level")) < target_level
+
+
 def _has_nearby_image_after(value: str) -> bool:
     if _leading_gutenberg_block_end(value, "image") is not None:
         return True
@@ -1421,7 +1490,7 @@ def _insert_block_after_heading(
         # above/below the heading, or with only one paragraph gap.
         before = content[: match.start()]
         after = content[match.end() :]
-        has_nearby_image_before = _has_nearby_image_before(before)
+        has_nearby_image_before = _has_blocking_image_before_heading(before, level)
         has_nearby_image_after = _has_nearby_image_after(after)
         if has_nearby_image_before or has_nearby_image_after:
             continue
@@ -1495,7 +1564,7 @@ def _extract_available_headings(content: str) -> list[dict]:
         before = content[: match.start()]
         after = content[match.end() :]
         # Reuse the same proximity guards used in _insert_block_after_heading
-        has_image_before = _has_nearby_image_before(before)
+        has_image_before = _has_blocking_image_before_heading(before, level)
         has_image_after = _has_nearby_image_after(after)
         if has_image_before or has_image_after:
             continue
@@ -1556,6 +1625,15 @@ def _rollback_unreferenced_uploads(
     }
 
 
+def _managed_media_identity(file_name: str, heading: object, heading_level: object) -> tuple[str, str, int]:
+    """Use one normalization contract for saved and newly selected media."""
+    return (
+        str(file_name or "").strip().casefold(),
+        str(heading or "").strip().casefold(),
+        int(heading_level or 0),
+    )
+
+
 def upload_images_batch(
     image_files: List[str],
     metadata_dict: Dict,  # filepath → {alt, title, caption, description}
@@ -1601,11 +1679,7 @@ def upload_images_batch(
         results["failed"].append({"error": f"Media manifest could not be read: {exc}"})
         return results
     existing_by_identity = {
-        (
-            str(item.get("file") or "").strip().casefold(),
-            str(item.get("heading") or "").strip().casefold(),
-            int(item.get("heading_level") or 0),
-        ): item
+        _managed_media_identity(item.get("file"), item.get("heading"), item.get("heading_level")): item
         for item in manifest.get("media_items", [])
         if item.get("media_id")
     }
@@ -1625,11 +1699,7 @@ def upload_images_batch(
             )
             continue
 
-        identity = (
-            Path(file_path).name.casefold(),
-            str(meta.get("heading") or "").strip().casefold(),
-            int(meta.get("heading_level") or 0),
-        )
+        identity = _managed_media_identity(Path(file_path).name, meta.get("heading"), meta.get("heading_level"))
         existing = existing_by_identity.get(identity)
         if existing:
             results["skipped"].append(
@@ -1656,6 +1726,11 @@ def upload_images_batch(
                 {
                     "file": file_path,
                     "error": upload_result["error"],
+                    **{
+                        key: upload_result[key]
+                        for key in ("orphaned_media_id", "reverted_media_id", "upload_unconfirmed", "cleanup_error")
+                        if key in upload_result
+                    },
                 }
             )
             continue
@@ -1687,6 +1762,14 @@ def upload_images_batch(
             )
         else:
             print(f"  ⚠️  Upload OK but attach failed: {attach_result['error']}")
+            results["failed"].append(
+                {
+                    "file": Path(file_path).name,
+                    "media_id": media_id,
+                    "code": "post_media_association_failed",
+                    "error": attach_result["error"],
+                }
+            )
             results["uploaded"].append(
                 {
                     "file": Path(file_path).name,

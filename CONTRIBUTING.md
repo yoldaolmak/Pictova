@@ -1,6 +1,6 @@
 # Contributing
 
-Pictova is an independent image-selection and WordPress placement tool. New work belongs in the native `src/pictova/` engine and app; `src/core/` and `src/main.py` are compatibility code.
+Pictova maintains a local travel-editorial WordPress image-placement workflow. New work belongs in the native `src/pictova/` engine and app; `src/core/` and `src/main.py` are compatibility code.
 
 ## Setup and checks
 
@@ -12,7 +12,7 @@ python -m black --check --line-length 120 src/
 node --check src/pictova/app/static/studio.js
 ```
 
-Use a feature branch from `main`. Keep a PR focused on one product behavior. Add a regression for the successful case **and** for the wrong image or unsafe write being rejected.
+Use a feature branch from `main`. Keep each PR focused. Add a regression for the successful case **and** for the wrong image or unsafe write being rejected.
 
 ## Boundaries
 

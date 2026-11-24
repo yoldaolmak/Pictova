@@ -13,6 +13,7 @@ from src.core.media_publish import build_publish_slug_candidates, embed_metadata
 from src.pictova.profiles.yoldaolmak import apply_environment
 from src.pictova.engine.metadata import build_native_metadata_map
 from src.pictova.engine.placement import should_render_as_gallery
+from src.pictova.engine.publish_outcome import classify_publish_result
 from src.pictova.engine.quality import quality_gate_native_batch
 from src.pictova.providers.wordpress import fetch_post_context, resolve_post_site
 from src.pictova.engine.processor import process_selected_images
@@ -512,6 +513,14 @@ def build_process_result(
     icloud_warnings: list[str] = []
     _files = resolve_icloud_files(selection.get("files", []), icloud_warnings)
     processed = process_selected_images(_files)
+    failures = list(processed.get("failed_images") or [])
+    panoramics = processed.get("panoramic_images") or {}
+    warnings = list(selection.get("warnings", [])) + icloud_warnings
+    warnings.extend(f"{item.get('file')}: {item.get('reason')}" for item in failures)
+    if panoramics:
+        warnings.append(f"{len(panoramics)} panoramic image(s) excluded from standard publishing")
+    processed_count = len(processed.get("processed_images", []))
+    stage_status = "failed" if not processed_count else ("partial" if warnings else "success")
     return {
         "command": "process",
         "site": site,
@@ -519,14 +528,13 @@ def build_process_result(
         "request": request,
         "post_context": summarize_post_context(post_context),
         "constraints": constraints,
-        "status": "success",
+        "status": stage_status,
         "selection": selection,
         "processed_images": processed.get("processed_images", []),
-        "panoramic_images": processed.get("panoramic_images", {}),
+        "panoramic_images": panoramics,
+        "failed_images": failures,
         "work_dir": processed.get("work_dir"),
-        # An iCloud asset that failed to download silently disappeared from the
-        # result; the caller saw a short list with no reason for it.
-        "warnings": list(selection.get("warnings", [])) + icloud_warnings,
+        "warnings": warnings,
     }
 
 
@@ -710,6 +718,10 @@ def _execute_native_attach_locked(
     _resolved_files = resolve_icloud_files(selected_assets, selection_warnings)
     processed = process_selected_images(_resolved_files)
     processed_images = processed.get("processed_images", [])
+    processing_failures = list(processed.get("failed_images") or [])
+    selection_warnings.extend(f"{item.get('file')}: {item.get('reason')}" for item in processing_failures)
+    if processed.get("panoramic_images"):
+        selection_warnings.append(f"{len(processed['panoramic_images'])} panoramic image(s) excluded from publishing")
     selector_assignments = dict(selection.get("heading_assignments", {}))
     approved_assignments = request.get("approved_heading_assignments", {})
     if isinstance(approved_assignments, dict):
@@ -755,7 +767,7 @@ def _execute_native_attach_locked(
         )
         failure["selected_assets"] = selected_assets
         failure["rejected_assets"] = blocked
-        failure["warnings"].extend(metadata_warnings)
+        failure["warnings"].extend(selection_warnings + metadata_warnings)
         failure["raw"] = {"selection": selection, "processed": processed}
         return failure
     finalized_files, finalized_metadata, finalized_details = finalize_publish_assets(
@@ -771,6 +783,9 @@ def _execute_native_attach_locked(
         processed_images=finalized_files,
         metadata_dict=finalized_metadata,
     )
+    status, publish_reason, needs_reconciliation = classify_publish_result(
+        published, warnings=bool(selection_warnings or blocked)
+    )
     duration_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
     return {
         "command": "attach",
@@ -778,7 +793,11 @@ def _execute_native_attach_locked(
         "post_id": request.get("post_id"),
         "request": request,
         "post_context": summarize_post_context(post_context),
-        "status": "partial" if (published.get("failed") or selection_warnings or blocked) else "success",
+        "status": status,
+        "publish_reason": publish_reason,
+        "needs_reconciliation": needs_reconciliation,
+        "content_update": published.get("content_update") or {},
+        "rollback": published.get("rollback") or {},
         "selected_assets": selection.get("files", []),
         "rejected_assets": blocked,
         "uploaded_media_ids": [item.get("media_id") for item in published.get("uploaded", []) if item.get("media_id")],
@@ -786,7 +805,13 @@ def _execute_native_attach_locked(
         "uploaded": published.get("uploaded", []),
         "failed_uploads": published.get("failed", []),
         "constraints": constraints,
-        "warnings": selection_warnings + metadata_warnings,
+        "warnings": selection_warnings
+        + metadata_warnings
+        + (
+            [f"WordPress publishing not fully verified ({publish_reason}); inspect post and manifest"]
+            if status != "success"
+            else []
+        ),
         "duration_ms": duration_ms,
         "raw": {
             "selection": selection,

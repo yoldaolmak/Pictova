@@ -116,11 +116,13 @@ def test_real_commons_photo_to_live_wordpress_draft_and_guarded_rollback(tmp_pat
         assert "End of original draft." in restored
     finally:
         # Never leave a public post or media behind, even on a failed assertion.
-        if media_id:
-            removed = wp.delete_media(media_id)
-            assert removed["success"], removed
-        if post_id:
-            result = wp.session.delete(
-                f"{base}/wp-json/wp/v2/posts/{post_id}", params={"force": "true"}, timeout=30
-            )
-            result.raise_for_status()
+        try:
+            if media_id:
+                removed = wp.delete_media(media_id)
+                assert removed["success"], removed
+        finally:
+            if post_id:
+                result = wp.session.delete(
+                    f"{base}/wp-json/wp/v2/posts/{post_id}", params={"force": "true"}, timeout=30
+                )
+                result.raise_for_status()

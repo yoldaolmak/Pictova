@@ -2,10 +2,12 @@
 
 ## Preview
 
+Set `POST_ID` to an explicitly selected test or editorial post ID before running commands.
+
 ```bash
 pictova health
-pictova review --site yoldaolmak --post 265713
-pictova plan --site yoldaolmak --post 265713 --count 4 --source auto
+pictova review --site yoldaolmak --post "$POST_ID"
+pictova plan --site yoldaolmak --post "$POST_ID" --count 4 --source auto
 ```
 
 Inspect target headings, candidate evidence and warnings. A missing exact match is not a failure to be filled with a generic image.
@@ -13,8 +15,8 @@ Inspect target headings, candidate evidence and warnings. A missing exact match 
 ## Process and publish
 
 ```bash
-pictova process --site yoldaolmak --post 265713 --count 4 --source auto
-pictova attach --site yoldaolmak --post 265713 --count 4 --source auto --engine native
+pictova process --site yoldaolmak --post "$POST_ID" --count 4 --source auto
+pictova attach --site yoldaolmak --post "$POST_ID" --count 4 --source auto --engine native
 ```
 
 `process` can download/licence images but does not alter WordPress. `attach` writes. For interactive approval of exact candidates, use `pictova studio`.
@@ -22,7 +24,7 @@ pictova attach --site yoldaolmak --post 265713 --count 4 --source auto --engine 
 Inspect managed media without a write:
 
 ```bash
-pictova guard --site yoldaolmak --post 265713
+pictova guard --site yoldaolmak --post "$POST_ID"
 ```
 
 `guard --repair`, `--reposition`, `--adopt` and `--reset` write. Back up the post first. Mixed-ownership galleries are rejected rather than deleted.
@@ -32,10 +34,20 @@ pictova guard --site yoldaolmak --post 265713
 - **No images:** Check exact heading matches, source configuration and `warnings`.
 - **Provider failure:** Check connectivity and credentials. Never repeat a licensed download blindly.
 - **Failed quality gate:** Review the original file and metadata; do not bypass the gate.
-- **WordPress failure:** Check the selected profile, application password and operation receipt. Inspect the post before retrying.
+- **WordPress failure:** Check the selected profile, application password, inserted-block count and operation receipt. An uploaded media ID is not proof of publication.
+- **Partial/interrupted job:** Inspect WordPress, managed-media manifest and local receipt before retrying. Media uploaded without confirmed metadata or association may require orphan cleanup. Partial is not success; interrupted jobs are never automatically resumed.
+- **Manifest drift:** Reposition or repair only managed image blocks after reviewing the affected headings and mixed-ownership galleries.
 
 ```bash
 python3 -m pytest -q
 ```
 
-Offline tests cannot validate live WordPress publication or real image identity. For index operations see [Indexing](indexing.md); for authenticated local HTTP see [API](../reference/http-api.md).
+To validate publishing safely without touching a real WordPress site:
+
+```bash
+python3 -m pytest tests/integration/test_synthetic_wordpress_publish.py -q
+```
+
+This drives real Studio HTTP, native image processing/quality gate, authenticated WordPress-like REST media writes, Gutenberg readback, manifest, rollback and conflict handling. Only external source discovery/visual-model evidence are deterministic test fixtures. No live WordPress publication, paid download or real-world image identity is asserted.
+
+For index operations see [Indexing](indexing.md); for authenticated local HTTP see [API](../reference/http-api.md).

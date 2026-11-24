@@ -16,7 +16,13 @@ The browser opens with a temporary token. The server binds to loopback only. To 
 4. Approve publication. Licensed stock requires a separate cost acknowledgment.
 5. Apply. Studio publishes **only selected candidate identities** through the native quality gate.
 
-Plans expire after 20 minutes and can be applied only once. A changed post or local photo blocks publication. No candidate, no upload.
+Plans expire after 20 minutes and can be applied only once. An enqueue failure does not consume the plan; a confirmed queued job does. A changed post or local photo blocks publication. No candidate, no upload.
+
+The interface distinguishes verified publication, existing idempotent media,
+partial/unverified writes, failed writes and interrupted jobs. For partial or
+interrupted results inspect WordPress before creating a new plan. Job-state
+receipts persist locally across process restarts; queued/running jobs become
+interrupted and are never automatically replayed.
 
 ## Limits
 

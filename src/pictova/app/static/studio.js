@@ -190,21 +190,34 @@
     while (Date.now() < deadline) {
       const answer = await api("/jobs/" + encodeURIComponent(jobId));
       const job = answer.job;
-      if (job.status === "success" || job.status === "failed") {
+      if (["success", "partial", "failed", "interrupted"].includes(job.status)) {
         const result = job.result || {};
         const inserted = Number(result.inserted_blocks || 0);
-        const uploaded = Array.isArray(result.uploaded_media_ids) ? result.uploaded_media_ids.length : 0;
         const warnings = Array.isArray(result.warnings) ? result.warnings.filter(Boolean) : [];
-        const success = result.status === "success" || (inserted > 0 && result.status === "partial");
-        message(
-          success ?
-            "İşlem tamamlandı. WordPress'e " + uploaded + " medya yüklendi; " +
-            inserted + " blok yerleştirildi." + (warnings.length ? " Uyarı: " + warnings[0] : "") :
-            "Yayımlama tamamlanamadı. " +
-            (warnings[0] || job.error || "İşlem sonucu ve WordPress içeriğini kontrol edin."),
-          !success
-        );
-        byId("plan-state").textContent = success ? "Yayımlandı" : "İşlem sonuçlandı";
+        if (job.status === "success") {
+          const idempotent = result.publish_reason === "already_present";
+          message(
+            idempotent ? "Görseller zaten WordPress yazısında mevcut; yeni blok eklenmedi." :
+              "Yayın doğrulandı: " + inserted + " görsel bloğu yerleştirildi.",
+            false
+          );
+          byId("plan-state").textContent = idempotent ? "Zaten mevcut" : "Yayın doğrulandı";
+        } else if (job.status === "partial") {
+          message(
+            "Kısmi veya doğrulanmamış sonuç. " + inserted +
+            " blok raporlandı; WordPress yazısını ve medya kaydını kontrol edin. " +
+            (warnings[0] || job.error || "Yeni onay vermeden önce durumu doğrulayın."),
+            true
+          );
+          byId("plan-state").textContent = "Kontrol gerekli";
+        } else {
+          message(
+            "Yayımlama doğrulanamadı. " +
+            (warnings[0] || job.error || "WordPress içeriğini kontrol edin; işlemi otomatik tekrarlamayın."),
+            true
+          );
+          byId("plan-state").textContent = job.status === "interrupted" ? "İş kesildi" : "İşlem başarısız";
+        }
         return;
       }
       await new Promise((resolve) => setTimeout(resolve, 1300));
