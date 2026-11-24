@@ -1,4 +1,4 @@
-"""Live HTTP smoke test against an ephemeral WordPress + real Commons photo.
+"""Live HTTP smoke test against an ephemeral WordPress + real public-domain photo.
 
 Never point this at a production site. A throwaway draft and image are removed
 after testing native WebP processing, Gutenberg placement and managed rollback.
@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from urllib.request import Request, urlopen
+import hashlib
 
 import pytest
 import requests
@@ -17,28 +17,26 @@ from src.pictova.engine.processor import process_selected_images
 from src.services.wordpress import YOWordPressUploader
 
 
-PHOTO = "https://upload.wikimedia.org/wikipedia/commons/b/b1/U%C3%A7hisar_Castle_01.jpg"
-PHOTO_CREDIT = "Bernard Gagnon / Wikimedia Commons (CC BY-SA); Uçhisar Castle 01.jpg"
+PHOTO = Path(__file__).with_name("fixtures") / "rocket.jpg"
+PHOTO_BLOB = "32bdd33960c60d012fc71b5fd80a7ccc24d3b906"
+PHOTO_CREDIT = "SpaceX, public domain; Falcon 9 DSCOVR launch"
 ARTICLE = (
     '<!-- wp:paragraph --><p>Original editor text stays untouched.</p><!-- /wp:paragraph -->'
-    '<!-- wp:heading {"level":2} --><h2 class="wp-block-heading">Uçhisar Kalesi</h2>'
+    '<!-- wp:heading {"level":2} --><h2 class="wp-block-heading">Falcon 9 DSCOVR launch</h2>'
     '<!-- /wp:heading -->'
     '<!-- wp:paragraph --><p>End of original draft.</p><!-- /wp:paragraph -->'
 )
 
 
 def _real_photo(path: Path) -> None:
-    request = Request(PHOTO, headers={"User-Agent": "PictovaIntegration/0.1 (github.com/yoldaolmak/Pictova)"})
-    with urlopen(request, timeout=45) as response:
-        size = response.headers.get("Content-Length")
-        if size and int(size) > 16 * 1024 * 1024:
-            pytest.fail("Real Commons photo exceeds test safety bound")
-        output = response.read(16 * 1024 * 1024 + 1)
-    assert 100_000 < len(output) <= 16 * 1024 * 1024, "Real photo must not be a placeholder"
+    output = PHOTO.read_bytes()
+    assert 100_000 < len(output) <= 16 * 1024 * 1024
+    git_object = b"blob " + str(len(output)).encode("ascii") + b"\0" + output
+    assert hashlib.sha1(git_object).hexdigest() == PHOTO_BLOB
     path.write_bytes(output)
 
 
-def test_real_commons_photo_to_live_wordpress_draft_and_guarded_rollback(tmp_path, monkeypatch):
+def test_real_photo_to_live_wordpress_draft_and_guarded_rollback(tmp_path, monkeypatch):
     base = os.environ.get("PICTOVA_SANDBOX_URL", "")
     if base != "http://127.0.0.1:8080":
         pytest.fail("Sandbox must use exactly the ephemeral loopback WordPress port")
@@ -67,10 +65,10 @@ def test_real_commons_photo_to_live_wordpress_draft_and_guarded_rollback(tmp_pat
 
     try:
         initial = wp.fetch_post_context(post_id)
-        assert initial and "Uçhisar Kalesi" in initial["content_raw"]
+        assert initial and "Falcon 9 DSCOVR launch" in initial["content_raw"]
         assert "Original editor text" in initial["content_raw"]
 
-        photo = tmp_path / "uchisar-commons.jpg"
+        photo = tmp_path / "launch.jpg"
         _real_photo(photo)
         prepared = process_selected_images([str(photo)], work_dir=str(tmp_path / "processed"))
         files = prepared["processed_images"]
@@ -79,11 +77,11 @@ def test_real_commons_photo_to_live_wordpress_draft_and_guarded_rollback(tmp_pat
         assert Path(files[0]).stat().st_size > 10_000
 
         metadata = {
-            "title": "Uçhisar Kalesi",
-            "alt": "Kapadokya Uçhisar Kalesi kaya oluşumu",
+            "title": "Falcon 9 DSCOVR launch",
+            "alt": "Falcon 9 on the launch pad at Cape Canaveral",
             "description": PHOTO_CREDIT,
             "caption": PHOTO_CREDIT,
-            "heading": "Uçhisar Kalesi",
+            "heading": "Falcon 9 DSCOVR launch",
             "heading_level": 2,
         }
         uploaded = wp.upload_media(
@@ -104,7 +102,7 @@ def test_real_commons_photo_to_live_wordpress_draft_and_guarded_rollback(tmp_pat
         assert committed
         raw = committed["content_raw"]
         assert f"wp-image-{media_id}" in raw
-        assert "Uçhisar Kalesi" in raw
+        assert "Falcon 9 DSCOVR launch" in raw
         assert "Original editor text stays untouched." in raw
         assert "End of original draft." in raw
 

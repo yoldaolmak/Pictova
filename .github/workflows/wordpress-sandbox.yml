@@ -71,7 +71,7 @@ jobs:
             pictova_ci pictova_ci_test --porcelain --allow-root --path=/var/www/html)
           echo "::add-mask::$secret"
           echo "PICTOVA_SANDBOX_APP_PASSWORD=$secret" >> "$GITHUB_ENV"
-      - name: Real Commons photo to Gutenberg to rollback over live HTTP
+      - name: Pinned public-domain photo to Gutenberg and rollback over live HTTP
         env:
           PICTOVA_SANDBOX_URL: http://127.0.0.1:8080
           PICTOVA_SANDBOX_USER: pictova_ci
