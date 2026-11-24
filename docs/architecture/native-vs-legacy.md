@@ -2,9 +2,11 @@
 
 The **native** engine is the supported publishing route:
 
+Set `POST_ID` to an explicitly selected test or editorial post ID before running commands.
+
 ```bash
-pictova plan --site yoldaolmak --post 265713 --engine native --source auto
-pictova attach --site yoldaolmak --post 265713 --engine native --source auto
+pictova plan --site yoldaolmak --post "$POST_ID" --engine native --source auto
+pictova attach --site yoldaolmak --post "$POST_ID" --engine native --source auto
 ```
 
 It coordinates heading-specific selection, media processing, metadata, quality

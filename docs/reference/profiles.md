@@ -1,22 +1,18 @@
-# Site Configuration
+# Site configuration
 
-The supported WordPress sites are defined by the adapter’s configured endpoint
-names:
+Use the primary editorial profile (`--site yoldaolmak`) for ordinary work.
+Its endpoint and credentials come from `WP_URL`, `WP_USER` and
+`WP_APP_PASSWORD`.
 
-| CLI value | Environment prefix |
-|---|---|
-| `yoldaolmak` | `WP_` |
+Existing installations may retain these compatibility settings:
+
+| CLI key | Environment prefix |
+| --- | --- |
 | `gezievreni` | `GEZIEVRENI_` |
 | `gezgindunyasi` | `GEZGINDUNYASI_` |
-| `auto` | Resolves a post across the configured sites, fail-closed on ambiguity |
 
-The native engine applies shared selection, metadata, and placement policy to
-all sites. A new site requires an explicit adapter configuration and tests for
-credentials, post resolution, and managed-media writes; it is not enabled by
-adding an untested Python profile file.
+`--site auto` resolves a post across configured profiles and refuses
+ambiguous IDs. Use an explicit profile for writes. Configure only authorized
+accounts.
 
-Use an explicit site for production operations whenever possible:
-
-```bash
-pictova plan --site gezievreni --post 173613 --count 4
-```
+See [Configuration](configuration.md).

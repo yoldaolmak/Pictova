@@ -7,11 +7,13 @@
 | `process` | Prepared local files; may download/license images | No |
 | `attach` | Uploaded media, Gutenberg blocks, verification | **Yes** |
 
+Set `POST_ID` to an explicitly selected test or editorial post ID before running commands.
+
 ```bash
-pictova review --site yoldaolmak --post 265713
-pictova plan --site yoldaolmak --post 265713 --count 4 --source auto
-pictova process --site yoldaolmak --post 265713 --count 4 --source auto
-pictova attach --site yoldaolmak --post 265713 --count 4 --source auto --engine native
+pictova review --site yoldaolmak --post "$POST_ID"
+pictova plan --site yoldaolmak --post "$POST_ID" --count 4 --source auto
+pictova process --site yoldaolmak --post "$POST_ID" --count 4 --source auto
+pictova attach --site yoldaolmak --post "$POST_ID" --count 4 --source auto --engine native
 ```
 
 A requested count is an upper bound. Empty sections are preferable to unrelated images. The plan is a preview; CLI `attach` re-runs selection. For exact human-approved candidates, use [Studio](../guides/studio.md), which binds publication to a single-use plan.

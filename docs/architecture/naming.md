@@ -1,13 +1,7 @@
-# Product Identity
+# Product identity
 
-**Pictova** is an independent tool for finding, validating and placing existing images in WordPress articles. It does not generate images or depend on another editorial product.
+Pictova — local WordPress image placement for travel publishing.
 
-| Surface | Name |
-| --- | --- |
-| Repository | `yoldaolmak/Pictova` |
-| CLI | `pictova` |
-| Python package | `src.pictova` |
-| Interactive UI | `pictova studio` |
-| Native publishing | `pictova attach --engine native` |
+CLI: `pictova` · Python package: `src.pictova` · Review: `pictova studio`.
 
-Legacy `VIL` names persist only in compatibility code and configuration keys. Do not introduce new product names for internal modules.
+See [Architecture](overview.md).
