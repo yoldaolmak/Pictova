@@ -40,8 +40,10 @@ human-supplied file path or a free-provider result is not automatically
 validated against every heading. Licensed DepositPhotos candidates must also
 pass a provider-title match before a chargeable download.
 
+Set `POST_ID` to the selected post ID before running commands.
+
 ```bash
-pictova plan --site yoldaolmak --post 265713 --count 4 --source auto
+pictova plan --site yoldaolmak --post "$POST_ID" --count 4 --source auto
 ```
 
 Inspect `files`, `heading_assignments` and `warnings` before publishing.

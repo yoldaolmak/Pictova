@@ -40,15 +40,17 @@ in image metadata.
 
 ## Choosing a source
 
+Set `POST_ID` to the selected post ID before running commands.
+
 ```bash
 # Local index only
-pictova plan --site yoldaolmak --post 265713 --source semantic
+pictova plan --site yoldaolmak --post "$POST_ID" --source semantic
 
 # Licensed exact candidates only
-pictova plan --site yoldaolmak --post 265713 --source deposit
+pictova plan --site yoldaolmak --post "$POST_ID" --source deposit
 
 # Let the native selector use its source chain
-pictova plan --site yoldaolmak --post 265713 --source auto
+pictova plan --site yoldaolmak --post "$POST_ID" --source auto
 ```
 
 `plan` previews candidates. A subsequent `attach` runs the same selection
