@@ -259,7 +259,15 @@ class YOWordPressUploader:
         except requests.exceptions.RequestException:
             return {"status": "unreachable"}
         if response.status_code == 200:
-            return {"status": "ready", "http_status": 200}
+            # A successful HTTP response must actually identify an authenticated REST user.
+            try:
+                identity = response.json()
+            except ValueError:
+                identity = None
+            user_id = identity.get("id") if isinstance(identity, dict) else None
+            if type(user_id) is int and user_id > 0:
+                return {"status": "ready", "http_status": 200}
+            return {"status": "unreachable", "http_status": 200, "reason": "invalid_rest_identity"}
         if response.status_code in {401, 403}:
             return {"status": "rejected", "http_status": response.status_code}
         return {"status": "unreachable", "http_status": response.status_code}
