@@ -19,8 +19,10 @@ Commands return structured JSON to stdout.
 
 ## Common flags
 
+Set `POST_ID` to an explicitly selected test or editorial post ID before running commands.
+
 ```bash
-pictova plan --site yoldaolmak --post 265713 --count 4 --source auto --engine native
+pictova plan --site yoldaolmak --post "$POST_ID" --count 4 --source auto --engine native
 ```
 
 - `--site`: configured profile or `auto` (fails on ambiguous IDs).
@@ -41,7 +43,7 @@ For a manual browser session, configure `PICTOVA_HTTP_TOKEN` and use `pictova st
 ## Guard
 
 ```bash
-pictova guard --site yoldaolmak --post 265713
+pictova guard --site yoldaolmak --post "$POST_ID"
 ```
 
 `--repair`, `--reposition`, `--adopt` and `--reset` modify managed media. Operations refuse mixed-ownership galleries instead of deleting unrelated editorial images.
