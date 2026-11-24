@@ -71,7 +71,7 @@ pip install -e '.[dev]'
 python3 -m pytest -q
 ```
 
-Expected: passing tests and explicitly reported `xfail` cases. CI does not run live WordPress tests.
+Expected: passing tests and explicitly reported `xfail` cases. CI separately runs a disposable installed WordPress sandbox.
 
 ## Optional: Mac Photos Visual Memory
 
