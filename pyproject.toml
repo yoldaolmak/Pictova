@@ -3,7 +3,7 @@ name = "pictova"
 version = "0.1.0"
 description = "Select, validate and place existing images in WordPress articles."
 readme = "README.md"
-license = "MIT"
+license = "LicenseRef-Proprietary"
 requires-python = ">=3.10,<3.13"
 dependencies = [
     "Pillow",
