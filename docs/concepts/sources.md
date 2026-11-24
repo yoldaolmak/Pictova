@@ -20,9 +20,9 @@ boundary.
 
 ## Exact-match rule
 
-For a numbered destination or named-product heading, Pictova requires the
-specific anchor in the candidate evidence. A generic waterfall cannot satisfy
-“Kapuzbaşı Şelaleleri”; a beach portrait cannot satisfy an application heading.
+For a named place or travel subject, Pictova requires the specific anchor
+in candidate evidence. A generic waterfall cannot satisfy
+“Kapuzbaşı Şelaleleri”.
 If a source cannot provide an exact candidate, that slot stays empty and the
 receipt reports why.
 
@@ -32,7 +32,8 @@ resumed licensed images are capped at 64 MiB, and nonnumeric asset IDs are
 rejected before any filesystem or licensing operation. Explicit
 `local`, `vil`, and `unsplash` modes are not interchangeable with that gate:
 a caller-provided path or free-provider search ranking is not independent
-identity evidence. Use a reviewed plan for direct source modes.
+identity evidence. Inspect direct-source candidates yourself before publishing; Studio uses the
+native auto route only.
 
 Selection hints such as the article title or heading never become visual facts
 in image metadata.

@@ -6,9 +6,9 @@ Pictova reads environment variables and the repository's optional `.env`. Copy `
 
 | Variable | Use |
 | --- | --- |
-| `WP_URL`, `WP_USER`, `WP_APP_PASSWORD` | `yoldaolmak` profile |
-| `GEZIEVRENI_URL`, `GEZIEVRENI_USER`, `GEZIEVRENI_PASS` | `gezievreni` profile |
-| `GEZGINDUNYASI_URL`, `GEZGINDUNYASI_USER`, `GEZGINDUNYASI_PASS` | `gezgindunyasi` profile |
+| `WP_URL`, `WP_USER`, `WP_APP_PASSWORD` | Primary editorial profile |
+| `GEZIEVRENI_URL`, `GEZIEVRENI_USER`, `GEZIEVRENI_PASS` | Existing compatibility profile |
+| `GEZGINDUNYASI_URL`, `GEZGINDUNYASI_USER`, `GEZGINDUNYASI_PASS` | Existing compatibility profile |
 
 Use WordPress Application Passwords, not your normal login password. `WP_PASSWORD` is a legacy alias for `WP_APP_PASSWORD`.
 
@@ -22,7 +22,7 @@ Use WordPress Application Passwords, not your normal login password. `WP_PASSWOR
 | `GEMINI_API_KEY` or `GEMINI_API_KEYS` | Gemini; multi-key value is comma-separated |
 | `GEMINI_VISION_MODEL` | Optional Gemini model override |
 | `OPENAI_API_KEY` | Optional vision fallback |
-| `PICTOVA_VISION_DAILY_LIMIT` | Completed scans per day (default 1350; `0` removes the cap) |
+| `PICTOVA_VISION_DAILY_LIMIT` | Attempted scans per day, including failures and active scans (default 1350; `0` removes the cap) |
 
 The local LM Studio option can run without an API key. A cached or available vision model is needed for native visual metadata; synthetic CI fixtures are not a real model.
 

@@ -1,7 +1,6 @@
 # Operation lifecycles
 
-Pictova uses existing functions and SQLite records for transitions. This is a
-contract, not a second workflow engine.
+Runtime transitions use local in-memory state, bounded JSON receipts and the SQLite photo index.
 
 | Area | States and rule |
 | --- | --- |
@@ -9,7 +8,7 @@ contract, not a second workflow engine.
 | Approval plan | available → submitting → consumed. An enqueue failure restores available; a second approval is refused. Plans expire after 20 minutes. |
 | Candidate consent | available → selected / rejected → approved. Paid candidates require separate permission. |
 | HTTP jobs | queued → running → success / partial / failed. On restart queued or running becomes interrupted; no automatic retry of paid work. |
-| Source selection | heading → exact candidate / expansion → verified match or empty. No generic replacement. |
+| Heading-aware selection | heading → candidate / query expansion → evidence match or empty. No generic replacement. |
 | Local and iCloud files | indexed → resolved → processed / skipped / failed. Per-file losses are returned explicitly. |
 | DepositPhotos | discovered → licensed link → partial download → completed / failed. Cached partials resume; no automatic resubmission of approved jobs. |
 | Model providers | LM Studio → Gemini → OpenAI → Codex → Claude, first valid result wins. No basic fallback. |
@@ -23,7 +22,7 @@ contract, not a second workflow engine.
 | Guard maintenance | drift → explicit repair/reposition/reset → verified / failed. Mixed ownership stays blocked. |
 | Visual Memory | pending → scanning (leased) → done / error. Explicit --retry-errors reclaims errors; stale scans are recoverable. |
 | Legacy engine | running → local / skipped / success / partial / failed. WordPress write outcomes use the same verification contract as native. |
-| Operation receipt | pending → persisted before work → terminal snapshot, or interrupted after restart. Full attach receipt remains separately stored. |
+| Job-status receipt | queued snapshot → running → terminal snapshot, or interrupted after restart. Full attach receipt is separate. |
 
 ## Publication result contract
 

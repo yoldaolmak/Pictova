@@ -24,7 +24,7 @@
 - DepositPhotos transfers, cached files and asset identifiers have explicit bounds.
 - Local vision responses reject truncated, malformed or oversized completions; operator errors omit raw model output.
 - CI runs tests on Python 3.10–3.12, lint and Studio JS syntax. Coverage stays in GitHub Actions logs.
-- Public docs and build commands are aligned with the standalone product and current code.
+- Documentation focuses on travel-editorial WordPress placement, with explicit receipt, scan-budget and publishing boundaries.
 
 ## 0.1.0 — 2026-06
 
